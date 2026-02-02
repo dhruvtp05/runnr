@@ -1,52 +1,88 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { Moon, Sun } from 'lucide-react';
-// Import the font directly into the component file if not using the global layout class
-import { Inter } from "next/font/google";
-
-const inter = Inter({ subsets: ["latin"] });
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import { Menu, X } from "lucide-react";
 
 export default function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    const handleScroll = () => setIsScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   return (
-    <div className={`${inter.className} fixed top-0 w-full z-50 px-4 pt-6 transition-all duration-300`}>
-      <nav className={`max-w-5xl mx-auto flex items-center justify-between px-6 py-2.5 rounded-2xl border transition-all duration-300 ${
-        isScrolled 
-          ? 'bg-white/80 backdrop-blur-md border-slate-200 shadow-sm' 
-          : 'bg-white/50 border-transparent shadow-none'
-      }`}>
-        
-        {/* Logo - Lowercase, Bold, Tight Spacing */}
-        <Link href="/" className="flex items-center gap-2">
-          <span className="text-xl font-bold tracking-tighter text-slate-900">
-            runn<span className="text-blue-600">ai.</span>
-          </span>
-        </Link>
+    <header
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        isScrolled ? "py-3" : "py-5"
+      }`}
+    >
+      <div className="max-w-6xl mx-auto px-6">
+        <nav
+          className={`flex items-center justify-between rounded-2xl border transition-all duration-300 ${
+            isScrolled
+              ? "bg-zinc-900/80 border-white/5 backdrop-blur-xl shadow-lg shadow-black/20"
+              : "bg-zinc-900/40 border-white/5 backdrop-blur-md"
+          } px-5 py-3`}
+        >
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-lg font-semibold tracking-tight text-white"
+          >
+            runn<span className="gradient-text">r</span>
+          </Link>
 
-        {/* Navigation Links - Medium Weight, Airy Spacing */}
-        <div className="flex items-center gap-8">
-          {/* Theme Switcher Toggle */}
-          <div className="flex items-center bg-slate-100/50 p-1 rounded-full border border-slate-200 ml-2">
-             <div className="p-1.5 rounded-full bg-white shadow-sm border border-slate-200/50">
-                <Moon className="w-3.5 h-3.5 text-slate-700" />
-             </div>
-             <div className="p-1.5 rounded-full opacity-40">
-                <Sun className="w-3.5 h-3.5 text-slate-400" />
-             </div>
+          <div className="hidden md:flex items-center gap-8">
+            <Link
+              href="#features"
+              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+            >
+              Features
+            </Link>
+            <Link
+              href="#how-it-works"
+              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+            >
+              How it works
+            </Link>
+            <Link
+              href="#"
+              className="rounded-full bg-white text-zinc-900 text-sm font-semibold px-4 py-2 hover:bg-zinc-200 transition-colors"
+            >
+              Get started
+            </Link>
           </div>
-        </div>
-      </nav>
-    </div>
+
+          <button
+            type="button"
+            className="md:hidden p-2 text-zinc-400 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </nav>
+
+        {isMobileMenuOpen && (
+          <div className="md:hidden mt-2 rounded-2xl border border-white/5 bg-zinc-900/95 backdrop-blur-xl p-4 flex flex-col gap-2">
+            <Link href="#features" className="py-2 text-zinc-300" onClick={() => setIsMobileMenuOpen(false)}>
+              Features
+            </Link>
+            <Link href="#how-it-works" className="py-2 text-zinc-300" onClick={() => setIsMobileMenuOpen(false)}>
+              How it works
+            </Link>
+            <Link href="#" className="py-2 text-zinc-300" onClick={() => setIsMobileMenuOpen(false)}>
+              Pricing
+            </Link>
+            <Link href="#" className="py-2 text-white font-medium" onClick={() => setIsMobileMenuOpen(false)}>
+              Get started
+            </Link>
+          </div>
+        )}
+      </div>
+    </header>
   );
 }
