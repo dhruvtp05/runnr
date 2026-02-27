@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --background: #0a0a0b;
+  --foreground: #fafafa;
+  --muted: #71717a;
+  --muted-foreground: #a1a1aa;
+  --border: #27272a;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.15);
+  --gradient-start: #3b82f6;
+  --gradient-mid: #8b5cf6;
+  --gradient-end: #ec4899;
+  --card: #18181b;
+  --ring: #3b82f6;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans);
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Subtle grid background */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--gradient-start), var(--gradient-mid), var(--gradient-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glow orb for hero */
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Glass panel */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
