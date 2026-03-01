@@ -85,9 +85,9 @@ export default function LandingPage() {
             {[
               {
                 icon: Gauge,
-                title: "Distance & pace",
+                title: "Distance",
                 description:
-                  "Set target distance and preferred pace. AI finds loops and out-and-backs that fit.",
+                  "Set target distance. AI finds loops and out-and-backs that fit.",
               },
               {
                 icon: BarChart3,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enhanceRoutesWithAI } from "./ai-enhance";
 
 export const runtime = "nodejs";
 
@@ -24,9 +25,13 @@ type Body = {
   surface?: SurfacePreference;
   effort?: EffortPreference;
   safety?: SafetyPreference;
+  userPreferences?: string;
+  rankBy?: string;
 };
 
 const OSRM_BASE_URL = process.env.OSRM_BASE_URL ?? "https://router.project-osrm.org";
+const TRAIL_ROUTER_URL =
+  process.env.TRAIL_ROUTER_URL ?? "https://trailrouter.com/ors/experimentalroutes";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -66,6 +71,84 @@ function destinationPoint(start: LatLng, bearingDeg: number, distanceMeters: num
   return { lat: toDeg(φ2), lng };
 }
 
+// Trail Router: round-trip routes that prefer parks, forests, water and avoid busy roads.
+// API: https://trailrouter.com/api/
+type TrailRouterRoute = {
+  distance: number;
+  duration: number;
+  geometry: { type: "LineString"; coordinates: Array<[number, number, number?]> };
+  greenScore?: number;
+};
+
+async function fetchTrailRouterRoutes(
+  start: LatLng,
+  targetMeters: number,
+  surface: SurfacePreference,
+  elevation: ElevationPreference,
+  safety: SafetyPreference
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    color: string;
+    distanceMeters: number;
+    durationSeconds: number;
+    geometry: { type: "LineString"; coordinates: Array<[number, number]> };
+    waypoint: LatLng;
+  }>
+> {
+  const coords = `${start.lng},${start.lat}`;
+  const greenPreference = surface === "trail" ? 0.9 : surface === "mixed" ? 0.5 : 0;
+  const hillsPreference = elevation === "flat" ? -1 : elevation === "hilly" ? 1 : 0;
+  const avoidUnsafeStreets = safety === "safer";
+
+  const params = new URLSearchParams({
+    coordinates: coords,
+    roundtrip: "true",
+    target_distance: String(Math.round(targetMeters)),
+    green_preference: String(greenPreference),
+    hills_preference: String(hillsPreference),
+    avoid_unsafe_streets: String(avoidUnsafeStreets),
+    avoid_repetition: "true",
+  });
+
+  const res = await fetch(`${TRAIL_ROUTER_URL}?${params.toString()}`, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (!res.ok) return [];
+
+  const json = (await res.json()) as { routes?: TrailRouterRoute[] };
+  const routes = json.routes ?? [];
+  if (routes.length === 0) return [];
+
+  const TOLERANCE = 0.15; // accept routes within ±15% of target (Trail Router is approximate)
+  const inRange = routes.filter(
+    (r) => r.distance >= targetMeters * (1 - TOLERANCE) && r.distance <= targetMeters * (1 + TOLERANCE)
+  );
+  const toUse = inRange.length >= 1 ? inRange : routes; // prefer in-range, else any
+  const selected = toUse.slice(0, 3);
+
+  return selected.map((r, i) => {
+    const coordsLatLng = r.geometry.coordinates.map(([lon, lat]) => [lat, lon] as [number, number]);
+    const mid = Math.floor(coordsLatLng.length / 2);
+    const waypoint =
+      coordsLatLng.length >= 2
+        ? { lat: coordsLatLng[mid][0], lng: coordsLatLng[mid][1] }
+        : start;
+    return {
+      id: `opt_${i}`,
+      name: ["Option A", "Option B", "Option C"][i],
+      color: ["#60a5fa", "#a78bfa", "#fb7185"][i],
+      distanceMeters: r.distance,
+      durationSeconds: typeof r.duration === "number" && r.duration > 1e6 ? Math.round(r.duration / 1000) : r.duration,
+      geometry: { type: "LineString" as const, coordinates: coordsLatLng },
+      waypoint,
+    };
+  });
+}
+
 async function fetchOsrmRoute(points: LatLng[]) {
   // OSRM expects lon,lat pairs
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
@@ -89,10 +172,15 @@ async function fetchOsrmRoute(points: LatLng[]) {
       geometry: { type: "LineString"; coordinates: Array<[number, number]> }; // [lon, lat]
     }>;
     message?: string;
+    code?: string;
   };
 
   if (json.code !== "Ok" || !json.routes?.[0]) {
-    throw new Error(json.message ?? "OSRM returned no routes.");
+    const msg = json.message ?? "OSRM returned no route.";
+    if (json.code === "NoRoute") {
+      throw new Error("No walkable route between points. Try a different distance or Road surface.");
+    }
+    throw new Error(msg);
   }
 
   const r = json.routes[0];
@@ -146,70 +234,179 @@ export async function POST(req: Request) {
 
     const metrics: Metrics = { elevation, surface, effort, safety };
 
+    const userPreferences = typeof body.userPreferences === "string" ? body.userPreferences.trim() || undefined : undefined;
+    const rankBy = typeof body.rankBy === "string" ? body.rankBy.trim() || undefined : undefined;
+
+    async function applyAI(
+      routeList: Array<{ id: string; name: string; color: string; distanceMeters: number; durationSeconds: number; geometry: { type: "LineString"; coordinates: Array<[number, number]> }; waypoint: LatLng; metrics: Metrics }>
+    ) {
+      const ai = await enhanceRoutesWithAI(
+        routeList.map((r) => ({ id: r.id, name: r.name, distanceMeters: r.distanceMeters, durationSeconds: r.durationSeconds, waypoint: r.waypoint })),
+        { surface, elevation },
+        start,
+        userPreferences,
+        rankBy
+      );
+      if (!ai) {
+        return {
+          routes: routeList,
+          aiRecommendedId: routeList[0]?.id ?? null,
+          preferenceInterpretation: undefined,
+        };
+      }
+      const orderedIds = ai.ranking.map((i) => routeList[i]?.id).filter(Boolean) as string[];
+      const routes = routeList.map((r, i) => ({
+        ...r,
+        name: ai.routeNames[i] ?? r.name,
+        aiDescription: ai.routeDescriptions[i],
+        aiTip: ai.runTips[i],
+      }));
+      return {
+        routes,
+        aiRecommendedId: orderedIds[0] ?? routeList[0]?.id ?? null,
+        preferenceInterpretation: ai.preferenceInterpretation,
+      };
+    }
+
     // Simple “LLM-like” variety: generate out-and-back routes in different directions.
-    // Each option: start -> waypoint -> start
+    // OSRM fallback: out-and-back waypoints
+    // Prefer Trail Router first (see above); this block runs if Trail Router returns no routes.
+    try {
+      const trailRoutes = await fetchTrailRouterRoutes(
+        start,
+        targetMeters,
+        surface,
+        elevation,
+        safety
+      );
+      if (trailRoutes.length >= 1) {
+        const routesWithMetrics = trailRoutes.map((r) => ({ ...r, metrics }));
+        const { routes: enhancedRoutes, aiRecommendedId, preferenceInterpretation } = await applyAI(routesWithMetrics);
+        const warning =
+          enhancedRoutes.length < 3
+            ? `Only ${enhancedRoutes.length} route(s) found. Try a different start or distance.`
+            : undefined;
+        return NextResponse.json({
+          start,
+          targetDistanceKm,
+          metrics,
+          routes: enhancedRoutes,
+          aiRecommendedId,
+          preferenceInterpretation: preferenceInterpretation ?? undefined,
+          ...(warning ? { warning } : {}),
+        });
+      }
+    } catch {
+      // Fall through to OSRM
+    }
+
     let bearings: number[];
     switch (elevation) {
       case "flat":
-        bearings = [0, 120, 240];
+        bearings = (surface === "trail" || surface === "mixed") ? [0, 60, 120, 180, 240, 300] : [0, 120, 240];
         break;
       case "hilly":
-        bearings = [45, 165, 285];
+        bearings = (surface === "trail" || surface === "mixed") ? [30, 90, 150, 210, 270, 330] : [45, 165, 285];
         break;
       case "rolling":
       default:
-        bearings = [20, 140, 260];
+        bearings = (surface === "trail" || surface === "mixed") ? [20, 80, 140, 200, 260, 320] : [20, 140, 260];
         break;
     }
 
-    let factors: number[];
-    switch (effort) {
-      case "easy":
-        factors = [0.9, 1.0, 1.05];
-        break;
-      case "tempo":
-        factors = [0.8, 0.9, 1.0];
-        break;
-      case "steady":
-      default:
-        factors = [0.9, 1.0, 1.1];
-        break;
-    }
+    const getFactor = (idx: number) => {
+      const f = effort === "easy" ? [0.9, 1.0, 1.05] : effort === "tempo" ? [0.8, 0.9, 1.0] : [0.9, 1.0, 1.1];
+      return f[idx % f.length];
+    };
     const colors = ["#60a5fa", "#a78bfa", "#fb7185"];
     const names = ["Option A", "Option B", "Option C"];
 
     const routes = [];
-    for (let i = 0; i < bearings.length; i++) {
-      const legMeters = (targetMeters / 2) * factors[i];
-      const waypoint = destinationPoint(start, bearings[i], legMeters);
+    const routeErrors: string[] = [];
+    const TOLERANCE = 0.07;
+    const MAX_ITERATIONS = 6;
+    const MAX_ROUTES = 3;
 
-      try {
-        const routed = await fetchOsrmRoute([start, waypoint, start]);
+    for (let i = 0; i < bearings.length && routes.length < MAX_ROUTES; i++) {
+      const factor = getFactor(i);
+      let legMeters = (targetMeters / 2) * factor;
+      let lastRouted: Awaited<ReturnType<typeof fetchOsrmRoute>> | null = null;
+      let lastWaypoint: LatLng | null = null;
+      let iterations = 0;
+      let addedThisBearing = false;
+
+      while (iterations < MAX_ITERATIONS) {
+        const waypoint = destinationPoint(start, bearings[i], legMeters);
+        try {
+          const routed = await fetchOsrmRoute([start, waypoint, start]);
+          lastRouted = routed;
+          lastWaypoint = waypoint;
+          const ratio = routed.distanceMeters / targetMeters;
+          if (ratio >= 1 - TOLERANCE && ratio <= 1 + TOLERANCE) {
+            routes.push({
+              id: `opt_${routes.length}`,
+              name: names[routes.length],
+              color: colors[routes.length],
+              waypoint,
+              metrics,
+              ...routed,
+            });
+            addedThisBearing = true;
+            break;
+          }
+          legMeters = legMeters * (targetMeters / routed.distanceMeters);
+          legMeters = Math.max(100, Math.min(legMeters, targetMeters));
+          iterations++;
+        } catch (err) {
+          routeErrors.push(err instanceof Error ? err.message : "Routing failed");
+          break;
+        }
+      }
+
+      // Only add fallback if we already have Option A (a real route within tolerance)
+      if (!addedThisBearing && lastRouted && lastWaypoint && routes.length >= 1 && routes.length < MAX_ROUTES) {
+        const idx = routes.length;
         routes.push({
-          id: `opt_${i}`,
-          name: names[i],
-          color: colors[i],
-          waypoint,
+          id: `opt_${idx}`,
+          name: names[idx],
+          color: colors[idx],
+          waypoint: lastWaypoint,
           metrics,
-          ...routed,
+          ...lastRouted,
         });
-      } catch {
-        // Skip failed candidates (e.g. ocean / no foot network nearby)
       }
     }
 
+    // Option A must be a real route (within tolerance). If we have no routes or only fallbacks, error.
     if (routes.length === 0) {
+      const hint =
+        surface === "trail" || surface === "mixed"
+          ? " Try Road surface or a start point nearer to paths and parks."
+          : " Try a different start point or shorter distance.";
       return NextResponse.json(
-        { error: "No routes found near that point. Try another location." },
-        { status: 404 },
+        {
+          error: "No route found that matches your target distance. Try a different start point, distance, or Road surface." + hint,
+          ...(routeErrors[0] ? { details: routeErrors[0] } : {}),
+        },
+        { status: 404 }
       );
     }
+
+    const warning =
+      routes.length < MAX_ROUTES && (surface === "trail" || surface === "mixed")
+        ? `Only ${routes.length} route(s) found. Try Road for more options.`
+        : undefined;
+
+    const { routes: enhancedRoutes, aiRecommendedId, preferenceInterpretation } = await applyAI(routes);
 
     return NextResponse.json({
       start,
       targetDistanceKm,
       metrics,
-      routes,
+      routes: enhancedRoutes,
+      aiRecommendedId,
+      preferenceInterpretation: preferenceInterpretation ?? undefined,
+      ...(warning ? { warning } : {}),
     });
   } catch (e) {
     return NextResponse.json(
