@@ -1,69 +1,75 @@
-# runnr
+🏃‍♂️ runnr
+runnr is a smart, interactive running route builder designed to help you discover the perfect loop. Simply drop a pin on the map, set your target distance, and let runnr generate custom round-trip options tailored to your preferences—whether you're looking for quiet park trails or paved city roads.
 
-Running route builder. You pick a start on the map and a target distance; it gives you a few round-trip options. Prefers parks and paths when you ask for trails, and stays close to the distance you asked for.
+✨ Features
+🗺️ Smart Route Generation Powered by Trail Router to prioritize green spaces and avoid busy streets. If an area isn't covered, it seamlessly falls back to OSRM to build intelligent, out-and-back routes that closely match your target distance (within 7–15% variance).
 
----
+⛰️ Tailored to Your Run Choose between Road, Trail, or Mixed surfaces. Customize further by setting your preferred elevation (flat, rolling, hilly) and safety levels (balanced, safer) to tweak waypoints and routing behavior.
 
-## Run it
+🤖 AI-Powered Insights (Optional) Connect your OpenAI API key to transform raw routes into curated experiences. The AI provides:
 
-```bash
+Catchy short names and one-line descriptions.
+
+Personalized run tips (terrain info, hill warnings, best time to run).
+
+Intelligent rankings based on your free-text preferences (e.g., "most scenic", "avoid main roads").
+
+💾 Save & Share (Optional) Backed by Supabase, you can save your generated route sets, name them, and generate shareable links (/routes/saved/<id>). Perfect for planning group runs or saving a favorite loop for later.
+
+📤 Export Anywhere * Google Maps: Open your route directly in Google Maps Directions to follow on your phone.
+
+GPX Download: Export the route as a .gpx file to import into Strava, Garmin Connect, Apple Watch (via WorkOutDoors), and more.
+
+🚀 Quick Start
+Get up and running locally in just a few steps:
+
+Bash
+
+# Navigate to the frontend directory
 cd runnr/root/frontend
+
+# Install dependencies
 npm install
+
+# Start the development server
 npm run dev
-```
+Open http://localhost:3000 in your browser. Click the map to set a start point, choose your distance/units, and hit Generate routes.
 
-Open http://localhost:3000. Click the map to set a start point, set your distance (and units), hit Generate routes.
+🛠️ Configuration (Optional)
+The app works perfectly out-of-the-box for basic routing. However, you can unlock AI polish and saving features by configuring a .env.local file in the runnr/root/frontend directory (see .env.local.example for reference).
 
----
+1. Enable AI Features
+To get AI-generated route names, tips, and custom rankings:
 
-## What it does
+Get an API key from OpenAI.
 
-**Route generation**  
-Uses [Trail Router](https://trailrouter.com) when it can: round-trip routes that prefer green space and avoid busy roads. If that doesn’t return anything (e.g. area not covered), it falls back to OSRM and builds out-and-back routes by guessing a turn-around point and refining until the length is close to your target. You get up to three options per run.
+Add it to your environment variables:
 
-**Distance and units**  
-Target distance can be in km or miles. The app tries to keep each route within about 7–15% of that target so you’re not way over or under.
+Code snippet
 
-**Trail vs road**  
-Surface options are Road, Trail, and Mixed. Trail/Mixed push the engine toward paths and parks; Road keeps it on streets. Elevation (flat / rolling / hilly) and safety (balanced / safer) tweak the waypoints and, where supported, the routing behaviour.
+OPENAI_API_KEY=your_openai_api_key_here
+2. Enable Cloud Saving
+To allow users to save and share route URLs:
 
-**AI layer**  
-If you set `OPENAI_API_KEY`, the app sends the three routes to the model and gets back:
+Create a new project on Supabase.
 
-- Short names and one-line descriptions for each route  
-- A run tip per route (surface, hills, when to run it)  
-- A ranking of the three (e.g. “best for morning run”)  
-- An optional “rank by” (e.g. “easiest”, “most scenic”) and free-text preferences (e.g. “avoid main road”); the model uses those to reorder and describe. The top-ranked route is marked as the AI pick and selected by default.
+Run the provided supabase-schema.sql file in the Supabase SQL editor to create the saved_routes table and necessary policies.
 
-No API key = no AI; you still get Option A/B/C and full routing.
+Add your project keys to your environment variables:
 
-**Saving routes**  
-With Supabase configured, you can save the current set of routes (optional name). You get a link like `/routes/saved/<id>`. Anyone with the link can open that page and see the same map and options. Handy for sharing or coming back later.
+Code snippet
 
-**Export**  
-For the route you have selected:
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+💻 Tech Stack
+Framework: Next.js (App Router)
 
-- **Open in Google Maps** — opens Directions with the route’s points as waypoints so you can follow it in Google Maps.  
-- **Download GPX** — downloads a GPX file you can import into Garmin Connect, Apple Watch apps (e.g. WorkOutDoors), Strava, or similar.
+UI/Components: React
 
----
+Mapping: Leaflet
 
-## Setup (optional)
+Routing Engines: Trail Router API, OSRM
 
-**AI**  
-In `runnr/root/frontend` add a `.env.local` (see `.env.local.example`):
+AI: OpenAI API
 
-- `OPENAI_API_KEY` — from [OpenAI](https://platform.openai.com/api-keys). Used for route names, descriptions, tips, and ranking.
-
-**Saving routes**  
-- Create a project at [Supabase](https://supabase.com).  
-- In the SQL editor, run the statements in `supabase-schema.sql` (creates `saved_routes` and policies).  
-- In `.env.local` set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from the project’s API settings.
-
-Without these, the app still runs; you just won’t get AI polish or the save/link feature.
-
----
-
-## Tech
-
-Next.js (App Router), React, Leaflet for the map. Route data from Trail Router and OSRM; AI from OpenAI; storage in Supabase.
+Database: Supabase (PostgreSQL)
