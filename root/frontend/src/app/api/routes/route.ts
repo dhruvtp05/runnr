@@ -7,23 +7,23 @@ type LatLng = { lat: number; lng: number };
 
 type ElevationPreference = "flat" | "rolling" | "hilly";
 type SurfacePreference = "road" | "trail" | "mixed";
-type EffortPreference = "easy" | "steady" | "tempo";
 type SafetyPreference = "balanced" | "safer";
 
 type Metrics = {
   elevation: ElevationPreference;
   surface: SurfacePreference;
-  effort: EffortPreference;
   safety: SafetyPreference;
 };
 
 type Body = {
   startLat: number;
   startLng: number;
-  targetDistanceKm: number;
+  targetDistanceKm?: number;
+  routeType?: "roundtrip" | "oneway";
+  endLat?: number;
+  endLng?: number;
   elevation?: ElevationPreference;
   surface?: SurfacePreference;
-  effort?: EffortPreference;
   safety?: SafetyPreference;
   userPreferences?: string;
   rankBy?: string;
@@ -35,6 +35,14 @@ const TRAIL_ROUTER_URL =
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+/** Normalize longitude to [-180, 180] (e.g. -284 → 76). */
+function normalizeLng(lng: number): number {
+  let x = lng;
+  while (x > 180) x -= 360;
+  while (x < -180) x += 360;
+  return x;
 }
 
 function toRad(deg: number) {
@@ -203,17 +211,121 @@ export async function POST(req: Request) {
     if (!Number.isFinite(startLat) || !Number.isFinite(startLng)) {
       return NextResponse.json({ error: "Invalid startLat/startLng." }, { status: 400 });
     }
-    if (startLat < -90 || startLat > 90 || startLng < -180 || startLng > 180) {
+
+    // Auto-correct if lat/lng were sent swapped (e.g. GeoJSON [lng,lat] or client bug in some regions)
+    let startLatNorm = startLat;
+    let startLngNorm = startLng;
+    if (Math.abs(startLat) > 90 && Math.abs(startLng) <= 90) {
+      startLatNorm = startLng;
+      startLngNorm = startLat;
+    }
+    // Normalize longitude to [-180, 180] (e.g. -284 → 75.35)
+    startLngNorm = normalizeLng(startLngNorm);
+    if (startLatNorm < -90 || startLatNorm > 90 || startLngNorm < -180 || startLngNorm > 180) {
       return NextResponse.json({ error: "startLat/startLng out of range." }, { status: 400 });
     }
-    if (!Number.isFinite(targetDistanceKmRaw) || targetDistanceKmRaw <= 0) {
+
+    const routeType = body.routeType === "oneway" ? "oneway" : "roundtrip";
+    if (routeType === "roundtrip" && (!Number.isFinite(targetDistanceKmRaw) || targetDistanceKmRaw <= 0)) {
       return NextResponse.json({ error: "Invalid targetDistanceKm." }, { status: 400 });
+    }
+
+    // One-way: require end point, route start→end
+    if (routeType === "oneway") {
+      const endLat = Number(body.endLat);
+      const endLng = Number(body.endLng);
+      if (!Number.isFinite(endLat) || !Number.isFinite(endLng)) {
+        return NextResponse.json({ error: "One-way routes require endLat and endLng." }, { status: 400 });
+      }
+      let endLatNorm = endLat;
+      let endLngNorm = endLng;
+      if (Math.abs(endLat) > 90 && Math.abs(endLng) <= 90) {
+        endLatNorm = endLng;
+        endLngNorm = endLat;
+      }
+      endLngNorm = normalizeLng(endLngNorm);
+      if (endLatNorm < -90 || endLatNorm > 90 || endLngNorm < -180 || endLngNorm > 180) {
+        return NextResponse.json({ error: "endLat/endLng out of range." }, { status: 400 });
+      }
+      const start: LatLng = { lat: startLatNorm, lng: startLngNorm };
+      const end: LatLng = { lat: endLatNorm, lng: endLngNorm };
+      const elevation: ElevationPreference =
+        body.elevation && ["flat", "rolling", "hilly"].includes(body.elevation)
+          ? body.elevation
+          : "rolling";
+      const surface: SurfacePreference =
+        body.surface && ["road", "trail", "mixed"].includes(body.surface)
+          ? body.surface
+          : "road";
+      const safety: SafetyPreference =
+        body.safety && ["balanced", "safer"].includes(body.safety)
+          ? body.safety
+          : "balanced";
+      const metrics: Metrics = { elevation, surface, safety };
+      const userPreferences = typeof body.userPreferences === "string" ? body.userPreferences.trim() || undefined : undefined;
+      const rankBy = typeof body.rankBy === "string" ? body.rankBy.trim() || undefined : undefined;
+
+      async function applyAIOneWay(
+        routeList: Array<{ id: string; name: string; color: string; distanceMeters: number; durationSeconds: number; geometry: { type: "LineString"; coordinates: Array<[number, number]> }; waypoint: LatLng; metrics: Metrics }>
+      ) {
+        const ai = await enhanceRoutesWithAI(
+          routeList.map((r) => ({ id: r.id, name: r.name, distanceMeters: r.distanceMeters, durationSeconds: r.durationSeconds, waypoint: r.waypoint })),
+          { surface, elevation },
+          start,
+          userPreferences,
+          rankBy
+        );
+        if (!ai) {
+          return { routes: routeList, aiRecommendedId: routeList[0]?.id ?? null, preferenceInterpretation: undefined as string | undefined };
+        }
+        const orderedIds = ai.ranking.map((i) => routeList[i]?.id).filter(Boolean) as string[];
+        const routes = routeList.map((r, i) => ({
+          ...r,
+          name: ai.routeNames[i] ?? r.name,
+          aiDescription: ai.routeDescriptions[i],
+          aiTip: ai.runTips[i],
+        }));
+        return {
+          routes,
+          aiRecommendedId: orderedIds[0] ?? routeList[0]?.id ?? null,
+          preferenceInterpretation: ai.preferenceInterpretation,
+        };
+      }
+
+      try {
+        const routed = await fetchOsrmRoute([start, end]);
+        const waypoint = end;
+        const routeList = [{
+          id: "opt_0",
+          name: "Option A",
+          color: "#60a5fa",
+          waypoint,
+          metrics,
+          ...routed,
+        }];
+        const targetDistanceKm = routed.distanceMeters / 1000;
+        const { routes: enhancedRoutes, aiRecommendedId, preferenceInterpretation } = await applyAIOneWay(routeList);
+        return NextResponse.json({
+          start,
+          targetDistanceKm,
+          metrics,
+          routes: enhancedRoutes,
+          aiRecommendedId,
+          preferenceInterpretation: preferenceInterpretation ?? undefined,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Routing failed.";
+        return NextResponse.json(
+          { error: "No route found between start and end. Try points that are connected by paths or roads.", details: msg },
+          { status: 404 }
+        );
+      }
     }
 
     const targetDistanceKm = clamp(targetDistanceKmRaw, 0.25, 60);
     const targetMeters = targetDistanceKm * 1000;
 
-    const start: LatLng = { lat: startLat, lng: startLng };
+    const start: LatLng = { lat: startLatNorm, lng: startLngNorm };
 
     const elevation: ElevationPreference =
       body.elevation && ["flat", "rolling", "hilly"].includes(body.elevation)
@@ -223,16 +335,12 @@ export async function POST(req: Request) {
       body.surface && ["road", "trail", "mixed"].includes(body.surface)
         ? body.surface
         : "road";
-    const effort: EffortPreference =
-      body.effort && ["easy", "steady", "tempo"].includes(body.effort)
-        ? body.effort
-        : "steady";
     const safety: SafetyPreference =
       body.safety && ["balanced", "safer"].includes(body.safety)
         ? body.safety
         : "balanced";
 
-    const metrics: Metrics = { elevation, surface, effort, safety };
+    const metrics: Metrics = { elevation, surface, safety };
 
     const userPreferences = typeof body.userPreferences === "string" ? body.userPreferences.trim() || undefined : undefined;
     const rankBy = typeof body.rankBy === "string" ? body.rankBy.trim() || undefined : undefined;
@@ -315,7 +423,7 @@ export async function POST(req: Request) {
     }
 
     const getFactor = (idx: number) => {
-      const f = effort === "easy" ? [0.9, 1.0, 1.05] : effort === "tempo" ? [0.8, 0.9, 1.0] : [0.9, 1.0, 1.1];
+      const f = [0.9, 1.0, 1.1];
       return f[idx % f.length];
     };
     const colors = ["#60a5fa", "#a78bfa", "#fb7185"];

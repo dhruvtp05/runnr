@@ -3,10 +3,13 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 
 export default function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -14,9 +17,26 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  const goToSection = (id: string) => {
+    if (typeof window === "undefined") return;
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const handleSectionClick = (id: string) => {
+    if (pathname === "/") {
+      goToSection(id);
+    } else {
+      router.push(`/#${id}`);
+    }
+    setIsMobileMenuOpen(false);
+  };
+
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-2000 transition-all duration-300 ${
         isScrolled ? "py-3" : "py-5"
       }`}
     >
@@ -36,17 +56,25 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
-            <Link
-              href="#features"
+            <button
+              type="button"
+              onClick={() => handleSectionClick("features")}
               className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
             >
               Features
-            </Link>
-            <Link
-              href="#how-it-works"
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSectionClick("how-it-works")}
               className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
             >
               How it works
+            </button>
+            <Link
+              href="/routes/saved"
+              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+            >
+              Saved routes
             </Link>
             <Link
               href="/routes"
@@ -68,16 +96,32 @@ export default function Navbar() {
 
         {isMobileMenuOpen && (
           <div className="md:hidden mt-2 rounded-2xl border border-white/5 bg-zinc-900/95 backdrop-blur-xl p-4 flex flex-col gap-2">
-            <Link href="#features" className="py-2 text-zinc-300" onClick={() => setIsMobileMenuOpen(false)}>
+            <button
+              type="button"
+              className="py-2 text-zinc-300 text-left"
+              onClick={() => handleSectionClick("features")}
+            >
               Features
-            </Link>
-            <Link href="#how-it-works" className="py-2 text-zinc-300" onClick={() => setIsMobileMenuOpen(false)}>
+            </button>
+            <button
+              type="button"
+              className="py-2 text-zinc-300 text-left"
+              onClick={() => handleSectionClick("how-it-works")}
+            >
               How it works
+            </button>
+            <Link
+              href="/routes/saved"
+              className="py-2 text-zinc-300"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Saved routes
             </Link>
-            <Link href="#" className="py-2 text-zinc-300" onClick={() => setIsMobileMenuOpen(false)}>
-              Pricing
-            </Link>
-            <Link href="/routes" className="py-2 text-white font-medium" onClick={() => setIsMobileMenuOpen(false)}>
+            <Link
+              href="/routes"
+              className="py-2 text-white font-medium"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
               Get started
             </Link>
           </div>

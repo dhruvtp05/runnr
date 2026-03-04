@@ -37,3 +37,27 @@ export async function GET(
     );
   }
 }
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    if (!id) return NextResponse.json({ error: "Missing id." }, { status: 400 });
+
+    const supabase = getSupabase();
+    const { error } = await supabase.from("saved_routes").delete().eq("id", id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to delete." },
+      { status: 500 }
+    );
+  }
+}

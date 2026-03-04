@@ -61,10 +61,6 @@ export async function enhanceRoutesWithAI(
   userPreferences?: string,
   rankBy?: string
 ): Promise<AIEnhancement | null> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key?.trim()) return null;
-
-  const client = new OpenAI({ apiKey: key });
   const summaries = routes.map((r) => routeSummaryForLLM(r, metrics, start));
 
   const userMessage = [
@@ -79,20 +75,10 @@ export async function enhanceRoutesWithAI(
     rankBy?.trim() ? `\nRank by: ${rankBy.trim()} (put the best matching route first in ranking).` : "",
   ].join("\n");
 
-  try {
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 800,
-    });
+  const openaiKey = process.env.OPENAI_API_KEY?.trim();
+  const useLocal = !openaiKey;
 
-    const content = completion.choices[0]?.message?.content;
-    if (!content) return null;
-
+  const buildResult = (content: string): AIEnhancement | null => {
     const parsed = JSON.parse(content) as {
       routeNames?: string[];
       routeDescriptions?: string[];
@@ -102,7 +88,9 @@ export async function enhanceRoutesWithAI(
     };
 
     const routeNames = Array.isArray(parsed.routeNames) ? parsed.routeNames.slice(0, 3) : [];
-    const routeDescriptions = Array.isArray(parsed.routeDescriptions) ? parsed.routeDescriptions.slice(0, 3) : [];
+    const routeDescriptions = Array.isArray(parsed.routeDescriptions)
+      ? parsed.routeDescriptions.slice(0, 3)
+      : [];
     const runTips = Array.isArray(parsed.runTips) ? parsed.runTips.slice(0, 3) : [];
     let ranking = Array.isArray(parsed.ranking) ? parsed.ranking.filter((n) => n >= 0 && n <= 2) : [0, 1, 2];
     if (ranking.length !== 3) ranking = [0, 1, 2];
@@ -121,6 +109,45 @@ export async function enhanceRoutesWithAI(
       preferenceInterpretation:
         typeof parsed.preferenceInterpretation === "string" ? parsed.preferenceInterpretation : undefined,
     };
+  };
+
+  try {
+    if (useLocal) {
+      const model = process.env.LOCAL_LLM_MODEL?.trim() || "llama3.2";
+      const res = await fetch("http://localhost:11434/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+          stream: false,
+        }),
+      });
+
+      if (!res.ok) return null;
+      const json = (await res.json()) as { message?: { content?: string } };
+      const content = json.message?.content;
+      if (!content) return null;
+      return buildResult(content);
+    }
+
+    const client = new OpenAI({ apiKey: openaiKey! });
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 800,
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) return null;
+    return buildResult(content);
   } catch {
     return null;
   }

@@ -1,5 +1,5 @@
 import Navbar from "@/app/components/Navbar";
-import SavedRouteView from "./saved-route-view";
+import SavedRouteViewClient from "./saved-route-view-client";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -14,7 +14,7 @@ export default async function SavedRoutePage({ params }: Props) {
             <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Saved route</h1>
             <p className="text-zinc-400">View and export your saved route.</p>
           </div>
-          <SavedRouteView id={id} />
+          <SavedRouteViewClient id={id} />
         </div>
       </main>
     </div>
