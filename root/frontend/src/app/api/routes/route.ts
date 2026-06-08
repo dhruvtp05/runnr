@@ -157,6 +157,16 @@ async function fetchTrailRouterRoutes(
   });
 }
 
+type OsrmRouteResponse = {
+  code: string;
+  routes?: Array<{
+    distance: number;
+    duration: number;
+    geometry: { type: "LineString"; coordinates: Array<[number, number]> }; // [lon, lat]
+  }>;
+  message?: string;
+};
+
 async function fetchOsrmRoute(points: LatLng[]) {
   // OSRM expects lon,lat pairs
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
@@ -172,19 +182,12 @@ async function fetchOsrmRoute(points: LatLng[]) {
     throw new Error(`Routing failed (${res.status}). ${text}`.trim());
   }
 
-  const json = (await res.json()) as {
-    code: string;
-    routes?: Array<{
-      distance: number;
-      duration: number;
-      geometry: { type: "LineString"; coordinates: Array<[number, number]> }; // [lon, lat]
-    }>;
-    message?: string;
-  };
+  const json = (await res.json()) as OsrmRouteResponse;
+  const responseCode = json.code;
 
-  if (json.code !== "Ok" || !json.routes?.[0]) {
+  if (responseCode !== "Ok" || !json.routes?.[0]) {
     const msg = json.message ?? "OSRM returned no route.";
-    if (json.code === "NoRoute") {
+    if (responseCode === "NoRoute") {
       throw new Error("No walkable route between points. Try a different distance or Road surface.");
     }
     throw new Error(msg);
