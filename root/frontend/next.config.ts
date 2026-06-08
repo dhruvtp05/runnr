@@ -1,23 +1,14 @@
 import type { NextConfig } from "next";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const tailwindPath = path.dirname(require.resolve("tailwindcss/package.json"));
-// Turbopack resolves from project root - use cwd (frontend when running npm run dev from here)
-const projectRoot = process.cwd();
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
+  // Keep tracing + Turbopack roots aligned (Vercel warns/fails when they differ).
+  outputFileTracingRoot: configDir,
   turbopack: {
-    root: projectRoot,
-    resolveAlias: {
-      tailwindcss: tailwindPath,
-    },
-  },
-  webpack: (config) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      tailwindcss: tailwindPath,
-    };
-    return config;
+    root: configDir,
   },
 };
 
