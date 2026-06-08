@@ -157,15 +157,20 @@ async function fetchTrailRouterRoutes(
   });
 }
 
+type OsrmRouteRow = {
+  distance: number;
+  duration: number;
+  geometry: { type: "LineString"; coordinates: Array<[number, number]> }; // [lon, lat]
+};
+
 type OsrmRouteResponse = {
-  code: string;
-  routes?: Array<{
-    distance: number;
-    duration: number;
-    geometry: { type: "LineString"; coordinates: Array<[number, number]> }; // [lon, lat]
-  }>;
+  routes?: OsrmRouteRow[];
   message?: string;
 };
+
+function osrmStatusCode(payload: OsrmRouteResponse & Record<string, unknown>): string {
+  return typeof payload.code === "string" ? payload.code : "";
+}
 
 async function fetchOsrmRoute(points: LatLng[]) {
   // OSRM expects lon,lat pairs
@@ -182,8 +187,8 @@ async function fetchOsrmRoute(points: LatLng[]) {
     throw new Error(`Routing failed (${res.status}). ${text}`.trim());
   }
 
-  const json = (await res.json()) as OsrmRouteResponse;
-  const responseCode = json.code;
+  const json = (await res.json()) as OsrmRouteResponse & Record<string, unknown>;
+  const responseCode = osrmStatusCode(json);
 
   if (responseCode !== "Ok" || !json.routes?.[0]) {
     const msg = json.message ?? "OSRM returned no route.";
