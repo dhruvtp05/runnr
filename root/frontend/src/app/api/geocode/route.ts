@@ -11,6 +11,38 @@ type GeocodeResult = {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
+  const lat = Number(searchParams.get("lat"));
+  const lon = Number(searchParams.get("lon"));
+
+  if (Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "runnr-route-builder/1.0" },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        return NextResponse.json({ results: [] });
+      }
+
+      const data = (await res.json()) as { display_name?: string };
+      const name = data.display_name?.trim();
+      if (!name) {
+        return NextResponse.json({ results: [] });
+      }
+
+      return NextResponse.json({
+        results: [{ name, lat, lng: lon }],
+      });
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Reverse geocoding error." },
+        { status: 500 },
+      );
+    }
+  }
 
   if (!q) {
     return NextResponse.json({ results: [] });

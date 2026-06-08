@@ -4,18 +4,21 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar() {
-  const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+    if (!isMobileMenuOpen) return;
+    const onResize = () => {
+      if (window.innerWidth >= 768) setIsMobileMenuOpen(false);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [isMobileMenuOpen]);
 
   const goToSection = (id: string) => {
     if (typeof window === "undefined") return;
@@ -35,94 +38,82 @@ export default function Navbar() {
   };
 
   return (
-    <header
-      className={`fixed top-0 left-0 right-0 z-2000 transition-all duration-300 ${
-        isScrolled ? "py-3" : "py-5"
-      }`}
-    >
+    <header className="sticky top-0 z-50 navbar backdrop-blur-sm">
       <div className="max-w-6xl mx-auto px-6">
-        <nav
-          className={`flex items-center justify-between rounded-2xl border transition-all duration-300 ${
-            isScrolled
-              ? "bg-zinc-900/80 border-white/5 backdrop-blur-xl shadow-lg shadow-black/20"
-              : "bg-zinc-900/40 border-white/5 backdrop-blur-md"
-          } px-5 py-3`}
-        >
-          <Link
-            href="/"
-            className="flex items-center text-lg font-semibold tracking-tight text-white"
-          >
-            runn<span className="gradient-text">r</span>
+        <nav className="flex items-center justify-between h-14 gap-3">
+          <Link href="/" className="text-lg font-semibold tracking-tight text-heading">
+            runnr
           </Link>
 
-          <div className="hidden md:flex items-center gap-8">
+          <div className="hidden md:flex items-center gap-5">
             <button
               type="button"
               onClick={() => handleSectionClick("features")}
-              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              className="text-sm text-body hover:text-heading transition-colors"
             >
               Features
             </button>
             <button
               type="button"
               onClick={() => handleSectionClick("how-it-works")}
-              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              className="text-sm text-body hover:text-heading transition-colors"
             >
               How it works
             </button>
             <Link
               href="/routes/saved"
-              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              className="text-sm text-body hover:text-heading transition-colors"
             >
               Saved routes
             </Link>
-            <Link
-              href="/routes"
-              className="rounded-full bg-white text-zinc-900 text-sm font-semibold px-4 py-2 hover:bg-zinc-200 transition-colors"
-            >
-              Get started
+            <ThemeToggle />
+            <Link href="/routes" className="btn btn-primary">
+              Plan a route
             </Link>
           </div>
 
-          <button
-            type="button"
-            className="md:hidden p-2 text-zinc-400 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label="Toggle menu"
-          >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          <div className="flex md:hidden items-center gap-1">
+            <ThemeToggle />
+            <button
+              type="button"
+              className="btn-ghost rounded-md p-2"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label="Toggle menu"
+            >
+              {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </nav>
 
         {isMobileMenuOpen && (
-          <div className="md:hidden mt-2 rounded-2xl border border-white/5 bg-zinc-900/95 backdrop-blur-xl p-4 flex flex-col gap-2">
+          <div className="md:hidden border-t border-default py-3 flex flex-col gap-1">
             <button
               type="button"
-              className="py-2 text-zinc-300 text-left"
+              className="py-2 text-left text-sm text-body"
               onClick={() => handleSectionClick("features")}
             >
               Features
             </button>
             <button
               type="button"
-              className="py-2 text-zinc-300 text-left"
+              className="py-2 text-left text-sm text-body"
               onClick={() => handleSectionClick("how-it-works")}
             >
               How it works
             </button>
             <Link
               href="/routes/saved"
-              className="py-2 text-zinc-300"
+              className="py-2 text-sm text-body"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               Saved routes
             </Link>
             <Link
               href="/routes"
-              className="py-2 text-white font-medium"
+              className="py-2 text-sm font-medium text-link"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              Get started
+              Plan a route
             </Link>
           </div>
         )}

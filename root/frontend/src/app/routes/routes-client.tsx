@@ -3,7 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, useMap, useMapEvents } from "react-leaflet";
 import type { LatLngBoundsExpression, LatLngTuple } from "leaflet";
-import { Loader2, Save, MapPin, Download, Copy, Check, Search, Thermometer } from "lucide-react";
+import { Loader2, Save, MapPin, Download, Copy, Check, Search, Thermometer, LocateFixed, ChevronDown, History } from "lucide-react";
+import {
+  KM_PER_MILE,
+  fmtDistance,
+  fmtDuration,
+  parsePaceMinPerUnit,
+  formatPaceMinPerUnit,
+  durationAtPaceSeconds,
+  sortRoutes,
+  formatRecentStartLabel,
+  type RouteSortBy,
+} from "@/lib/route-utils";
+import { upsertSavedRouteMeta } from "@/lib/saved-routes-storage";
+import RouteCompareTable from "./route-compare-table";
+import FormSection from "./form-section";
 
 type LatLng = { lat: number; lng: number };
 
@@ -39,17 +53,6 @@ type RoutesResponse = {
   aiRecommendedId?: string;
   preferenceInterpretation?: string;
 };
-
-const KM_PER_MILE = 1.60934;
-
-function fmtDistance(meters: number, unit: "km" | "mi" = "km") {
-  if (unit === "mi") {
-    const miles = meters / 1000 / KM_PER_MILE;
-    return `${miles.toFixed(miles < 10 ? 2 : 1)} mi`;
-  }
-  const km = meters / 1000;
-  return `${km.toFixed(km < 10 ? 2 : 1)} km`;
-}
 
 function parseLatLng(input: string): LatLng | null {
   const match = input.trim().match(
@@ -203,6 +206,7 @@ export default function RoutesClient() {
   const [endLabel, setEndLabel] = useState<string | null>(null);
   const [isGeocodingStart, setIsGeocodingStart] = useState(false);
   const [isGeocodingEnd, setIsGeocodingEnd] = useState(false);
+  const [isLocatingStart, setIsLocatingStart] = useState(false);
   const [startSuggestions, setStartSuggestions] = useState<
     { name: string; lat: number; lng: number }[]
   >([]);
@@ -210,11 +214,12 @@ export default function RoutesClient() {
     { name: string; lat: number; lng: number }[]
   >([]);
   const [distanceFocused, setDistanceFocused] = useState(false);
-  const [userPreferences, setUserPreferences] = useState("");
-  const [rankBy, setRankBy] = useState("");
+  const [sortBy, setSortBy] = useState<RouteSortBy>("recommended");
+  const [paceInput, setPaceInput] = useState("6:00");
   const [recentStarts, setRecentStarts] = useState<
     { lat: number; lng: number; label: string | null }[]
   >([]);
+  const [recentExpanded, setRecentExpanded] = useState(false);
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preferenceInterpretation, setPreferenceInterpretation] = useState<string | null>(null);
@@ -231,10 +236,32 @@ export default function RoutesClient() {
   const [routeElevation, setRouteElevation] = useState<{ elevations: number[]; climbMeters: number } | null>(null);
   const [elevationLoading, setElevationLoading] = useState(false);
 
-  const selectedRoute = useMemo(
-    () => routes.find((r) => r.id === selectedId) ?? null,
-    [routes, selectedId],
+  const targetDistanceMeters = useMemo(() => {
+    if (routeType === "oneway") {
+      return routes[0]?.distanceMeters ?? 0;
+    }
+    const baseDistance = Number(targetDistance);
+    if (!Number.isFinite(baseDistance) || baseDistance <= 0) return 0;
+    const km = distanceUnit === "mi" ? baseDistance * KM_PER_MILE : baseDistance;
+    return km * 1000;
+  }, [routeType, targetDistance, distanceUnit, routes]);
+
+  const paceMinPerUnit = useMemo(() => parsePaceMinPerUnit(paceInput) ?? 6, [paceInput]);
+
+  const sortedRoutes = useMemo(
+    () => sortRoutes(routes, sortBy, targetDistanceMeters || undefined),
+    [routes, sortBy, targetDistanceMeters],
   );
+
+  const selectedRoute = useMemo(
+    () => sortedRoutes.find((r) => r.id === selectedId) ?? null,
+    [sortedRoutes, selectedId],
+  );
+
+  const topPickId = useMemo(() => {
+    if (aiRecommendedId && sortBy === "recommended") return aiRecommendedId;
+    return sortedRoutes[0]?.id ?? null;
+  }, [aiRecommendedId, sortBy, sortedRoutes]);
 
   // Load personalization from localStorage
   useEffect(() => {
@@ -289,6 +316,25 @@ export default function RoutesClient() {
     setWarning(null);
     setSavedId(null);
   }, []);
+
+  const applyRecentStart = useCallback(
+    (s: { lat: number; lng: number; label: string | null }) => {
+      const label = s.label ?? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
+      setStart({ lat: s.lat, lng: s.lng });
+      setStartQuery(label);
+      setStartLabel(s.label);
+      setStartSuggestions([]);
+      setEnd(null);
+      setEndQuery("");
+      setRoutes([]);
+      setSelectedId(null);
+      setError(null);
+      setWarning(null);
+      setSavedId(null);
+      setRecentExpanded(false);
+    },
+    [],
+  );
 
   // Whenever start changes, remember it as a recent start
   useEffect(() => {
@@ -348,7 +394,7 @@ export default function RoutesClient() {
         setElevation("flat");
         setSurface("road");
         setSafety("safer");
-        setUserPreferences("Easy 5k loop, keep it gentle.");
+        setSortBy("closest");
         break;
       case "10k-long":
         setDistanceUnit("km");
@@ -356,7 +402,7 @@ export default function RoutesClient() {
         setElevation("rolling");
         setSurface("road");
         setSafety("balanced");
-        setUserPreferences("Steady long run around 10k.");
+        setSortBy("closest");
         break;
       case "hilly-30":
         setDistanceUnit("km");
@@ -364,7 +410,7 @@ export default function RoutesClient() {
         setElevation("hilly");
         setSurface("mixed");
         setSafety("balanced");
-        setUserPreferences("Hilly route for about 30 minutes.");
+        setSortBy("fastest");
         break;
       default:
         break;
@@ -403,26 +449,11 @@ export default function RoutesClient() {
       if (!res.ok) throw new Error(json.error ?? "Failed to save");
       if (json.id) {
         setSavedId(json.id);
-        try {
-          if (typeof window !== "undefined") {
-            const key = "runnr:saved-routes";
-            const existing = JSON.parse(
-              window.localStorage.getItem(key) ?? "[]",
-            ) as { id: string; name: string | null; createdAt: string }[];
-            const entry = {
-              id: json.id,
-              name: saveName.trim() || null,
-              createdAt: new Date().toISOString(),
-            };
-            const filtered = existing.filter((r) => r.id !== entry.id);
-            window.localStorage.setItem(
-              key,
-              JSON.stringify([entry, ...filtered].slice(0, 50)),
-            );
-          }
-        } catch {
-          // ignore localStorage errors
-        }
+        upsertSavedRouteMeta({
+          id: json.id,
+          name: saveName.trim() || null,
+          createdAt: new Date().toISOString(),
+        });
       } else {
         setSavedId(null);
       }
@@ -501,6 +532,54 @@ export default function RoutesClient() {
     [startQuery, endQuery, onPickStart, onPickEnd],
   );
 
+  const useMyLocation = useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setError("Your browser does not support location access.");
+      return;
+    }
+
+    setIsLocatingStart(true);
+    setError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        onPickStart(p);
+        setStartLabel("My location");
+        setStartQuery("My location");
+        setIsLocatingStart(false);
+
+        try {
+          const res = await fetch(
+            `/api/geocode?lat=${encodeURIComponent(p.lat)}&lon=${encodeURIComponent(p.lng)}`,
+          );
+          if (res.ok) {
+            const data = (await res.json()) as {
+              results?: Array<{ name: string }>;
+            };
+            const name = data.results?.[0]?.name;
+            if (name) {
+              setStartLabel(name);
+              setStartQuery(name);
+            }
+          }
+        } catch {
+          // Keep "My location" if reverse geocoding fails.
+        }
+      },
+      (err) => {
+        setIsLocatingStart(false);
+        const messages: Record<number, string> = {
+          1: "Location access was denied. Allow location in your browser settings.",
+          2: "Could not determine your location.",
+          3: "Location request timed out. Try again.",
+        };
+        setError(messages[err.code] ?? "Could not get your location.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }, [onPickStart]);
+
   useEffect(() => {
     const q = startQuery.trim();
     if (!q || parseLatLng(q)) {
@@ -573,35 +652,34 @@ export default function RoutesClient() {
       return {
         label: "Stormy – consider another time",
         temp,
-        color: "bg-amber-500/20 text-amber-200 border-amber-500/30",
+        variant: "weather-badge-amber",
       };
     }
 
     let label: string;
-    let color: string;
+    let variant: string;
 
     if (temp <= 20) {
       label = "Very cold for running";
-      color = "bg-sky-500/20 text-sky-100 border-sky-500/30";
+      variant = "weather-badge-cold";
     } else if (temp <= 40) {
       label = "Cold – layer up";
-      color = "bg-sky-500/20 text-sky-100 border-sky-500/30";
+      variant = "weather-badge-cold";
     } else if (temp <= 60) {
-      // Research: best running performance is typically around 45–55 °F
       label = "Great running weather";
-      color = "bg-emerald-500/20 text-emerald-200 border-emerald-500/30";
+      variant = "weather-badge-good";
     } else if (temp <= 75) {
       label = "Warm – stay hydrated";
-      color = "bg-orange-500/20 text-orange-200 border-orange-500/30";
+      variant = "weather-badge-warm";
     } else if (temp <= 85) {
       label = "Hot – go easy";
-      color = "bg-orange-500/20 text-orange-200 border-orange-500/30";
+      variant = "weather-badge-warm";
     } else {
       label = "Very hot – use caution";
-      color = "bg-red-500/20 text-red-200 border-red-500/30";
+      variant = "weather-badge-hot";
     }
 
-    return { label, temp, color };
+    return { label, temp, variant };
   }, [weather]);
 
   useEffect(() => {
@@ -646,13 +724,13 @@ export default function RoutesClient() {
     const distKm = selectedRoute.distanceMeters / 1000;
     const climb = routeElevation?.climbMeters ?? 0;
     if (climb > 0) {
-      if (climb < 150 && distKm < 8) return { label: "Easy", color: "text-emerald-400" };
-      if (climb > 300 || distKm > 15) return { label: "Hard", color: "text-amber-400" };
-      return { label: "Moderate", color: "text-zinc-300" };
+      if (climb < 150 && distKm < 8) return { label: "Easy", color: "effort-easy" };
+      if (climb > 300 || distKm > 15) return { label: "Hard", color: "effort-hard" };
+      return { label: "Moderate", color: "effort-moderate" };
     }
-    if (distKm < 5) return { label: "Easy", color: "text-emerald-400" };
-    if (distKm > 15) return { label: "Hard", color: "text-amber-400" };
-    return { label: "Moderate", color: "text-zinc-300" };
+    if (distKm < 5) return { label: "Easy", color: "effort-easy" };
+    if (distKm > 15) return { label: "Hard", color: "effort-hard" };
+    return { label: "Moderate", color: "effort-moderate" };
   }, [selectedRoute, routeElevation]);
 
   const generate = useCallback(async () => {
@@ -696,12 +774,11 @@ export default function RoutesClient() {
         elevation,
         surface,
         safety,
-        userPreferences: userPreferences.trim() || undefined,
-        rankBy: rankBy.trim() || undefined,
       };
       if (routeType === "roundtrip") {
-        const targetDistanceKm = distanceUnit === "mi" ? targetDistance * KM_PER_MILE : targetDistance;
-        body.targetDistanceKm = targetDistanceKm;
+        const baseDistance = Number(targetDistance);
+        body.targetDistanceKm =
+          distanceUnit === "mi" ? baseDistance * KM_PER_MILE : baseDistance;
       } else {
         body.endLat = end!.lat;
         body.endLng = end!.lng;
@@ -752,7 +829,19 @@ export default function RoutesClient() {
       } else {
         setPreferenceInterpretation(null);
       }
-      setSelectedId(data.aiRecommendedId ?? data.routes[0]?.id ?? null);
+      const generatedTargetMeters =
+        routeType === "roundtrip"
+          ? (distanceUnit === "mi"
+              ? Number(targetDistance) * KM_PER_MILE
+              : Number(targetDistance)) * 1000
+          : data.routes[0]?.distanceMeters ?? 0;
+
+      setSelectedId(
+        sortRoutes(data.routes, sortBy, generatedTargetMeters || undefined)[0]?.id ??
+          data.aiRecommendedId ??
+          data.routes[0]?.id ??
+          null,
+      );
       setWarning(data.warning ?? null);
       if (data.routes.length === 0) {
         setError("No routes found. Try another location or Road surface.");
@@ -766,98 +855,104 @@ export default function RoutesClient() {
     } finally {
       setIsLoading(false);
     }
-  }, [start, end, routeType, targetDistance, distanceUnit, elevation, surface, safety, userPreferences, rankBy]);
+  }, [start, end, routeType, targetDistance, distanceUnit, elevation, surface, safety, sortBy]);
 
   return (
     <div className="grid lg:grid-cols-[420px_1fr] gap-6">
-      <section className="glass rounded-2xl p-5 border border-white/10 min-w-0 overflow-hidden">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-white font-semibold text-lg">Route options</h2>
-            <p className="text-sm text-zinc-400">
-              {routeType === "roundtrip" ? (
-                start ? (
-                  <>Start: {start.lat.toFixed(5)}, {start.lng.toFixed(5)}</>
-                ) : (
-                  "Click the map to choose your start point."
-                )
-              ) : start && end ? (
-                <span className="flex flex-wrap items-center gap-2">
-                  Start → End set.{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEnd(null);
-                      setRoutes([]);
-                      setSelectedId(null);
-                    }}
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Change end point
-                  </button>
-                </span>
-              ) : start ? (
-                "Now click the map to set your end point."
+      <section className="panel planner-sidebar">
+        <div className="planner-header">
+          <h2 className="text-heading font-semibold text-lg">Route planner</h2>
+          <p className="text-sm text-body mt-1">
+            {routeType === "roundtrip" ? (
+              start ? (
+                <>Start set · click the map to move it</>
               ) : (
-                "Click the map to set your start point, then your end point."
-              )}
-            </p>
-          </div>
+                "Pick a start on the map or search below"
+              )
+            ) : start && end ? (
+              <span className="flex flex-wrap items-center gap-2">
+                Start and end set.{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEnd(null);
+                    setRoutes([]);
+                    setSelectedId(null);
+                  }}
+                  className="text-link underline"
+                >
+                  Change end
+                </button>
+              </span>
+            ) : start ? (
+              "Now pick an end point on the map"
+            ) : (
+              "Pick start and end on the map, or search below"
+            )}
+          </p>
         </div>
 
-        <div className="grid gap-3 mb-4">
-          <div className="grid gap-1">
-            <span className="text-sm font-medium text-zinc-300">Route type</span>
-            <div className="inline-flex gap-1 rounded-xl bg-black/30 p-1 border border-white/10">
+        <div className="planner-sidebar-scroll">
+          <FormSection title="Trip type">
+            <div className="segment">
               {[
-                { value: "roundtrip" as const, label: "There and back" },
+                { value: "roundtrip" as const, label: "Loop" },
                 { value: "oneway" as const, label: "One-way" },
               ].map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => onRouteTypeChange(opt.value)}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    routeType === opt.value
-                      ? "bg-white text-zinc-900"
-                      : "text-zinc-300 hover:bg-white/10"
+                  className={`segment-btn text-sm ${
+                    routeType === opt.value ? "segment-btn-active" : ""
                   }`}
                 >
                   {opt.label}
                 </button>
               ))}
             </div>
-          </div>
+          </FormSection>
 
-          <div className="grid gap-3">
+          <FormSection title="Locations" description="Search, use GPS, or click the map">
             <div className="grid gap-1">
-              <span className="text-sm font-medium text-zinc-300">
-                Start location (address or coordinates)
-              </span>
+              <span className="text-sm font-medium text-body">Start</span>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={startQuery}
                   onChange={(e) => setStartQuery(e.target.value)}
-                  placeholder='e.g. "Golden Gate Bridge" or "37.7749,-122.4194"'
-                  className="flex-1 rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-white text-sm placeholder:text-zinc-500 outline-none focus:border-white/20"
+                  placeholder='Address or "37.7749,-122.4194"'
+                  className="field flex-1"
                 />
                 <button
                   type="button"
                   onClick={() => geocodeLocation("start")}
-                  disabled={isGeocodingStart}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-white/20 px-3 py-2 text-sm font-medium text-white hover:bg-white/30 disabled:opacity-60"
+                  disabled={isGeocodingStart || isLocatingStart}
+                  className="btn btn-secondary shrink-0"
+                  aria-label="Search start"
                 >
                   {isGeocodingStart ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Search className="w-4 h-4" />
                   )}
-                  Search
+                </button>
+                <button
+                  type="button"
+                  onClick={useMyLocation}
+                  disabled={isLocatingStart || isGeocodingStart}
+                  className="btn btn-secondary shrink-0"
+                  aria-label="Use my location"
+                >
+                  {isLocatingStart ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <LocateFixed className="w-4 h-4" />
+                  )}
                 </button>
               </div>
               {startSuggestions.length > 0 ? (
-                <div className="mt-1 rounded-xl bg-black/80 border border-white/15 shadow-lg max-h-48 overflow-auto">
+                <div className="dropdown-menu max-h-40 overflow-auto">
                   {startSuggestions.map((s, idx) => (
                     <button
                       key={`${s.lat}-${s.lng}-${idx}`}
@@ -868,82 +963,86 @@ export default function RoutesClient() {
                         setStartQuery(s.name);
                         setStartSuggestions([]);
                       }}
-                      className="w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-white/10 flex items-start gap-2"
+                      className="dropdown-item flex items-start gap-2"
                     >
-                      <Search className="w-3 h-3 mt-0.5 text-zinc-400" />
+                      <Search className="w-3 h-3 mt-0.5 text-subtle" />
                       <span className="line-clamp-2">{s.name}</span>
                     </button>
                   ))}
                 </div>
               ) : null}
               {startLabel ? (
-                <span className="text-xs text-zinc-400 line-clamp-2">
-                  Using: {startLabel}
-                </span>
+                <span className="text-xs text-subtle line-clamp-1">Using: {startLabel}</span>
               ) : null}
               {recentStarts.length > 0 ? (
-                <div className="mt-1 flex flex-wrap gap-1.5 items-center">
-                  <span className="text-[11px] uppercase tracking-wide text-zinc-500">
-                    Recent:
-                  </span>
-                  {recentStarts.map((s, idx) => (
-                    <button
-                      key={`${s.lat}-${s.lng}-${idx}`}
-                      type="button"
-                      onClick={() => {
-                        const label =
-                          s.label ??
-                          `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
-                        setStart({ lat: s.lat, lng: s.lng });
-                        setStartQuery(label);
-                        setStartLabel(s.label);
-                        setStartSuggestions([]);
-                        setEnd(null);
-                        setEndQuery("");
-                        setRoutes([]);
-                        setSelectedId(null);
-                        setError(null);
-                        setWarning(null);
-                        setSavedId(null);
-                      }}
-                      className="rounded-full border border-white/15 bg-black/40 px-2.5 py-1 text-[11px] text-zinc-200 hover:bg-white/10"
-                    >
-                      {s.label ?? `${s.lat.toFixed(3)}, ${s.lng.toFixed(3)}`}
-                    </button>
-                  ))}
+                <div className="recent-starts">
+                  <button
+                    type="button"
+                    onClick={() => setRecentExpanded((v) => !v)}
+                    className="recent-starts-toggle"
+                    aria-expanded={recentExpanded}
+                  >
+                    <History className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                    <span className="recent-starts-toggle-label">
+                      Recent starts
+                      <span className="recent-starts-count">{recentStarts.length}</span>
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 shrink-0 recent-starts-chevron ${recentExpanded ? "recent-starts-chevron-open" : ""}`}
+                      aria-hidden
+                    />
+                  </button>
+                  {recentExpanded ? (
+                    <ul className="recent-starts-list">
+                      {recentStarts.map((s, idx) => {
+                        const { short, full } = formatRecentStartLabel(s.label, s.lat, s.lng);
+                        return (
+                          <li key={`${s.lat}-${s.lng}-${idx}`}>
+                            <button
+                              type="button"
+                              onClick={() => applyRecentStart(s)}
+                              className="recent-starts-item"
+                              title={full}
+                            >
+                              <MapPin className="w-3 h-3 shrink-0 text-subtle" aria-hidden />
+                              <span className="recent-starts-item-label">{short}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
                 </div>
               ) : null}
             </div>
 
             {routeType === "oneway" ? (
               <div className="grid gap-1">
-                <span className="text-sm font-medium text-zinc-300">
-                  End location (address or coordinates)
-                </span>
+                <span className="text-sm font-medium text-body">End</span>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={endQuery}
                     onChange={(e) => setEndQuery(e.target.value)}
-                    placeholder='e.g. "Central Park" or "40.7812,-73.9665"'
-                    className="flex-1 rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-white text-sm placeholder:text-zinc-500 outline-none focus:border-white/20"
+                    placeholder='Address or "40.7812,-73.9665"'
+                    className="field flex-1"
                   />
                   <button
                     type="button"
                     onClick={() => geocodeLocation("end")}
                     disabled={isGeocodingEnd}
-                    className="inline-flex items-center justify-center gap-1 rounded-xl bg-white/20 px-3 py-2 text-sm font-medium text-white hover:bg-white/30 disabled:opacity-60"
+                    className="btn btn-secondary shrink-0"
+                    aria-label="Search end"
                   >
                     {isGeocodingEnd ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Search className="w-4 h-4" />
                     )}
-                    Search
                   </button>
                 </div>
                 {endSuggestions.length > 0 ? (
-                  <div className="mt-1 rounded-xl bg-black/80 border border-white/15 shadow-lg max-h-48 overflow-auto">
+                  <div className="dropdown-menu max-h-40 overflow-auto">
                     {endSuggestions.map((s, idx) => (
                       <button
                         key={`${s.lat}-${s.lng}-${idx}`}
@@ -954,413 +1053,378 @@ export default function RoutesClient() {
                           setEndQuery(s.name);
                           setEndSuggestions([]);
                         }}
-                        className="w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-white/10 flex items-start gap-2"
+                        className="dropdown-item flex items-start gap-2"
                       >
-                        <Search className="w-3 h-3 mt-0.5 text-zinc-400" />
+                        <Search className="w-3 h-3 mt-0.5 text-subtle" />
                         <span className="line-clamp-2">{s.name}</span>
                       </button>
                     ))}
                   </div>
                 ) : null}
                 {endLabel ? (
-                  <span className="text-xs text-zinc-400 line-clamp-2">
-                    Using: {endLabel}
-                  </span>
+                  <span className="text-xs text-subtle line-clamp-2">Using: {endLabel}</span>
                 ) : null}
               </div>
             ) : null}
-          </div>
+          </FormSection>
 
-          {routeType === "roundtrip" ? (
-            <label className="grid gap-1">
-              <span className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                Target distance
-                <span className="inline-flex rounded-lg bg-black/30 p-0.5 border border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setDistanceUnit("km")}
-                    className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${
-                      distanceUnit === "km"
-                        ? "bg-white text-zinc-900"
-                        : "text-zinc-400 hover:text-zinc-300"
-                    }`}
-                  >
-                    km
+          <FormSection title="Run settings">
+            {routeType === "roundtrip" ? (
+              <>
+                <label className="grid gap-1">
+                  <span className="text-sm font-medium text-body flex items-center justify-between gap-2">
+                    Target distance
+                    <span className="segment p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setDistanceUnit("km")}
+                        className={`segment-btn px-2 py-1 ${
+                          distanceUnit === "km" ? "segment-btn-active" : ""
+                        }`}
+                      >
+                        km
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDistanceUnit("mi")}
+                        className={`segment-btn px-2 py-1 ${
+                          distanceUnit === "mi" ? "segment-btn-active" : ""
+                        }`}
+                      >
+                        mi
+                      </button>
+                    </span>
+                  </span>
+                  <input
+                    type="number"
+                    min={0.25}
+                    max={distanceUnit === "mi" ? 37 : 60}
+                    step={0.25}
+                    value={targetDistance}
+                    onChange={(e) => setTargetDistance(e.target.value)}
+                    onFocus={() => setDistanceFocused(true)}
+                    onBlur={() => setDistanceFocused(false)}
+                    placeholder={distanceUnit === "mi" ? "e.g. 3.1" : "e.g. 5"}
+                    className="field"
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-subtle">Quick presets</span>
+                  <button type="button" onClick={() => applyPreset("5k-easy")} className="chip">
+                    5k easy
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setDistanceUnit("mi")}
-                    className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${
-                      distanceUnit === "mi"
-                        ? "bg-white text-zinc-900"
-                        : "text-zinc-400 hover:text-zinc-300"
-                    }`}
-                  >
-                    mi
+                  <button type="button" onClick={() => applyPreset("10k-long")} className="chip">
+                    10k long
                   </button>
-                </span>
-              </span>
-              <input
-                type="number"
-                min={distanceUnit === "mi" ? 0.25 : 0.25}
-                max={distanceUnit === "mi" ? 37 : 60}
-                step={0.25}
-                value={targetDistance}
-                onChange={(e) => setTargetDistance(e.target.value)}
-                onFocus={() => setDistanceFocused(true)}
-                onBlur={() => setDistanceFocused(false)}
-                placeholder={distanceUnit === "mi" ? "e.g. 3.1" : "e.g. 5"}
-                className="w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-white outline-none placeholder:text-zinc-500 focus:border-white/20"
-              />
-            </label>
+                  <button type="button" onClick={() => applyPreset("hilly-30")} className="chip">
+                    Hilly ~30m
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            <div className="pref-grid">
+              <div className="grid gap-2 min-w-0">
+                <span className="text-xs font-medium text-subtle">Elevation</span>
+                <div className="segment w-full">
+                  {(
+                    [
+                      { value: "flat", label: "Flat" },
+                      { value: "rolling", label: "Rolling" },
+                      { value: "hilly", label: "Hilly" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setElevation(opt.value)}
+                      className={`segment-btn ${
+                        elevation === opt.value ? "segment-btn-active" : ""
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-2 min-w-0">
+                <span className="text-xs font-medium text-subtle">Safety</span>
+                <div className="segment w-full">
+                  {(
+                    [
+                      { value: "balanced", label: "Balanced" },
+                      { value: "safer", label: "Safer" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSafety(opt.value)}
+                      className={`segment-btn ${
+                        safety === opt.value ? "segment-btn-active" : ""
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-2 min-w-0 pref-grid-wide">
+                <span className="text-xs font-medium text-subtle">Surface</span>
+                <div className="segment w-full">
+                  {(
+                    [
+                      { value: "road", label: "Road" },
+                      { value: "trail", label: "Trail" },
+                      { value: "mixed", label: "Mixed" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSurface(opt.value)}
+                      className={`segment-btn ${
+                        surface === opt.value ? "segment-btn-active" : ""
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </FormSection>
+
+          {sortedRoutes.length > 0 ? (
+            <FormSection
+              title="Results"
+              description="Compare options and pick one on the map"
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-medium text-subtle">Sort by</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as RouteSortBy)}
+                    className="field"
+                  >
+                    <option value="recommended">Recommended</option>
+                    <option value="closest">Closest to target</option>
+                    <option value="shortest">Shortest</option>
+                    <option value="longest">Longest</option>
+                    <option value="fastest">Fastest (map est.)</option>
+                  </select>
+                </label>
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-medium text-subtle">
+                    Pace ({distanceUnit === "mi" ? "min/mi" : "min/km"})
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={distanceUnit === "mi" ? "9:39" : "6:00"}
+                    value={paceInput}
+                    onChange={(e) => setPaceInput(e.target.value)}
+                    onBlur={() => {
+                      const parsed = parsePaceMinPerUnit(paceInput);
+                      if (parsed !== null) setPaceInput(formatPaceMinPerUnit(parsed));
+                    }}
+                    className="field"
+                  />
+                </label>
+              </div>
+
+              {sortedRoutes.length > 1 ? (
+                <RouteCompareTable
+                  routes={sortedRoutes}
+                  selectedId={selectedId}
+                  topPickId={topPickId}
+                  onSelect={setSelectedId}
+                  distanceUnit={distanceUnit}
+                  paceMinPerUnit={paceMinPerUnit}
+                  routeType={routeType}
+                  targetDistanceMeters={targetDistanceMeters}
+                  sortBy={sortBy}
+                  embedded
+                />
+              ) : selectedRoute ? (
+                <div className="route-card route-card-selected">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ background: selectedRoute.color }}
+                        aria-hidden
+                      />
+                      <span className="text-heading font-semibold truncate">
+                        {selectedRoute.name}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-heading font-semibold">
+                        {fmtDistance(selectedRoute.distanceMeters, distanceUnit)}
+                      </div>
+                      <div className="text-xs text-subtle">
+                        {fmtDuration(
+                          durationAtPaceSeconds(
+                            selectedRoute.distanceMeters,
+                            paceMinPerUnit,
+                            distanceUnit,
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </FormSection>
           ) : null}
 
-          {routeType === "roundtrip" ? (
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
-              <span>Presets:</span>
-              <button
-                type="button"
-                onClick={() => applyPreset("5k-easy")}
-                className="rounded-full border border-white/15 bg-black/40 px-2.5 py-1 hover:bg-white/10"
-              >
-                5k easy
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset("10k-long")}
-                className="rounded-full border border-white/15 bg-black/40 px-2.5 py-1 hover:bg-white/10"
-              >
-                10k long run
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset("hilly-30")}
-                className="rounded-full border border-white/15 bg-black/40 px-2.5 py-1 hover:bg-white/10"
-              >
-                Hilly ~30 min
-              </button>
-            </div>
+          {routes.length > 0 ? (
+            <FormSection title="Save & share">
+              <p className="text-xs text-subtle -mt-1">
+                Store this route set and get a link to open later.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Name (optional)"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  className="field flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={saveRoute}
+                  disabled={isSaving}
+                  className="btn btn-secondary shrink-0"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save
+                </button>
+              </div>
+              {savedId ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-link font-medium">Saved</span>
+                  <button type="button" onClick={copySavedLink} className="btn btn-secondary text-xs py-1">
+                    {linkCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {linkCopied ? "Copied" : "Copy link"}
+                  </button>
+                  <a
+                    href={`/routes/saved/${savedId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-link underline text-sm"
+                  >
+                    Open
+                  </a>
+                </div>
+              ) : null}
+            </FormSection>
           ) : null}
 
-          <div className="grid gap-5">
-            <div className="grid gap-2 min-w-0">
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Elevation</span>
-              <div className="inline-flex w-full max-w-full gap-0.5 rounded-full bg-white/5 p-0.5 border border-white/10">
-                {[
-                  { value: "flat", label: "Flat" },
-                  { value: "rolling", label: "Rolling" },
-                  { value: "hilly", label: "Hilly" },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setElevation(opt.value as ElevationPreference)}
-                    className={`flex-1 min-w-0 rounded-full px-3 py-2 text-xs font-medium transition-all duration-150 ${
-                      elevation === opt.value
-                        ? "bg-white text-zinc-900 shadow-sm"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-white/5"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+          {selectedRoute ? (
+            <FormSection title="Export">
+              {(routeElevation || elevationLoading || effortLabel) && (
+                <div className="space-y-1.5">
+                  {elevationLoading ? (
+                    <span className="text-xs text-subtle flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Loading elevation…
+                    </span>
+                  ) : routeElevation ? (
+                    <>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-body">Climb: {routeElevation.climbMeters} m</span>
+                        {effortLabel ? (
+                          <span className={effortLabel.color}>Effort: {effortLabel.label}</span>
+                        ) : null}
+                      </div>
+                      {routeElevation.elevations.length > 1 ? (
+                        <ElevationSparkline
+                          elevations={routeElevation.elevations}
+                          className="h-8 w-full"
+                        />
+                      ) : null}
+                    </>
+                  ) : effortLabel ? (
+                    <span className={`text-xs ${effortLabel.color}`}>
+                      Effort: {effortLabel.label}
+                    </span>
+                  ) : null}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={buildGoogleMapsUrl(selectedRoute.geometry.coordinates)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Google Maps
+                </a>
+                <button
+                  type="button"
+                  onClick={() => downloadGPX(selectedRoute)}
+                  className="btn btn-secondary"
+                >
+                  <Download className="w-4 h-4" />
+                  Download GPX
+                </button>
               </div>
-            </div>
+              <p className="text-xs text-subtle">
+                Import GPX into Strava, Garmin, or Apple Watch apps.{" "}
+                <a href="/routes/export" target="_blank" rel="noopener noreferrer" className="text-link underline">
+                  How to export →
+                </a>
+              </p>
+            </FormSection>
+          ) : null}
+        </div>
 
-            <div className="grid gap-2 min-w-0">
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Safety bias</span>
-              <div className="inline-flex w-full max-w-full gap-0.5 rounded-full bg-white/5 p-0.5 border border-white/10">
-                {[
-                  { value: "balanced", label: "Balanced" },
-                  { value: "safer", label: "Safer" },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setSafety(opt.value as SafetyPreference)}
-                    className={`flex-1 min-w-0 rounded-full px-3 py-2 text-xs font-medium transition-all duration-150 ${
-                      safety === opt.value
-                        ? "bg-white text-zinc-900 shadow-sm"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-white/5"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-2 min-w-0">
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Surface</span>
-              <div className="inline-flex w-full max-w-full gap-0.5 rounded-full bg-white/5 p-0.5 border border-white/10">
-                {[
-                  { value: "road", label: "Road" },
-                  { value: "trail", label: "Trail" },
-                  { value: "mixed", label: "Mixed" },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setSurface(opt.value as SurfacePreference)}
-                    className={`flex-1 min-w-0 rounded-full px-3 py-2 text-xs font-medium transition-all duration-150 ${
-                      surface === opt.value
-                        ? "bg-white text-zinc-900 shadow-sm"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-white/5"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <label className="grid gap-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-              Preferences <span className="normal-case font-normal text-zinc-600">(optional)</span>
-            </span>
-            <input
-              type="text"
-              placeholder="e.g. avoid main road, more shade"
-              value={userPreferences}
-              onChange={(e) => setUserPreferences(e.target.value)}
-              className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-colors"
-            />
-          </label>
-
-          <label className="grid gap-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-              Rank by <span className="normal-case font-normal text-zinc-600">(optional)</span>
-            </span>
-            <input
-              type="text"
-              placeholder="e.g. morning run, most scenic"
-              value={rankBy}
-              onChange={(e) => setRankBy(e.target.value)}
-              className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-colors"
-            />
-          </label>
-
-          {start && (
+        <div className="form-section-action">
+          {start ? (
             <div className="flex items-center gap-2 flex-wrap">
               {weatherLoading ? (
-                <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
+                <span className="inline-flex items-center gap-1.5 text-xs text-subtle">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> Weather…
                 </span>
               ) : weatherBadge ? (
-                <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium ${weatherBadge.color}`}>
+                <span className={`weather-badge ${weatherBadge.variant}`}>
                   <Thermometer className="w-3.5 h-3.5" />
                   {weatherBadge.temp}°F — {weatherBadge.label}
                 </span>
               ) : null}
             </div>
-          )}
+          ) : null}
 
           <button
             type="button"
             onClick={generate}
             disabled={isLoading}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white text-zinc-900 font-semibold px-4 py-2.5 hover:bg-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className="btn btn-primary w-full"
           >
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Generate routes
           </button>
 
-          {error ? (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {error}
-            </div>
-          ) : null}
-          {warning ? (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-              {warning}
-            </div>
-          ) : null}
+          {error ? <div className="alert-error">{error}</div> : null}
+          {warning ? <div className="alert-warning">{warning}</div> : null}
           {preferenceInterpretation && typeof preferenceInterpretation === "string" ? (
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-              AI: {preferenceInterpretation}
-            </div>
+            <div className="alert-info">{preferenceInterpretation}</div>
+          ) : null}
+
+          {sortedRoutes.length === 0 ? (
+            <p className="text-xs text-subtle text-center">
+              Set a start point and hit generate to see routes.
+            </p>
           ) : null}
         </div>
-
-        <div className="grid gap-3">
-          {routes.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
-              Generate routes to see options here.
-            </div>
-          ) : (
-            routes.map((r) => {
-              const isSelected = r.id === selectedId;
-              const isAiRecommended = r.id === aiRecommendedId;
-              const aiDescriptionText =
-                typeof r.aiDescription === "string" ? r.aiDescription : null;
-              let aiTipText: string | null = null;
-              if (typeof r.aiTip === "string") {
-                aiTipText = r.aiTip;
-              } else if (r.aiTip && typeof r.aiTip === "object") {
-                try {
-                  const parts = Object.values(r.aiTip as Record<string, unknown>)
-                    .map((v) => (typeof v === "string" ? v.trim() : ""))
-                    .filter(Boolean);
-                  aiTipText = parts.join(" · ") || null;
-                } catch {
-                  aiTipText = null;
-                }
-              }
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setSelectedId(r.id)}
-                  className={`text-left rounded-2xl border p-4 transition-all ${
-                    isSelected
-                      ? "border-white/20 bg-white/10"
-                      : "border-white/10 bg-white/5 hover:bg-white/10"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="inline-block w-3 h-3 rounded-full shrink-0"
-                        style={{ background: r.color }}
-                        aria-hidden
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-white font-semibold">{r.name}</span>
-                          {isAiRecommended ? (
-                            <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                              AI pick
-                            </span>
-                          ) : null}
-                        </div>
-                        {aiDescriptionText ? (
-                          <div className="text-xs text-zinc-400 mt-0.5">{aiDescriptionText}</div>
-                        ) : (
-                          <div className="text-xs text-zinc-400">
-                            Waypoint: {r.waypoint.lat.toFixed(4)}, {r.waypoint.lng.toFixed(4)}
-                          </div>
-                        )}
-                        {aiTipText ? (
-                          <div className="text-xs text-zinc-500 mt-1 italic">Tip: {aiTipText}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-white font-semibold">
-                        {fmtDistance(r.distanceMeters, distanceUnit)}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-
-        {routes.length > 0 ? (
-          <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <h3 className="text-sm font-medium text-zinc-300">Save routes</h3>
-            <p className="text-xs text-zinc-400">Store this set of routes in Supabase and get a link to open later or share.</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Route name (optional)"
-                value={saveName}
-                onChange={(e) => setSaveName(e.target.value)}
-                className="flex-1 rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-white text-sm placeholder:text-zinc-500 outline-none focus:border-white/20"
-              />
-              <button
-                type="button"
-                onClick={saveRoute}
-                disabled={isSaving}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 disabled:opacity-60"
-              >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save
-              </button>
-            </div>
-            {savedId ? (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-emerald-400">Saved!</span>
-                <button
-                  type="button"
-                  onClick={copySavedLink}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2 py-1 text-zinc-300 hover:bg-white/20"
-                >
-                  {linkCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {linkCopied ? "Copied" : "Copy link"}
-                </button>
-                <a
-                  href={`/routes/saved/${savedId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-zinc-400 hover:text-white underline"
-                >
-                  Open
-                </a>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {selectedRoute ? (
-          <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <h3 className="text-sm font-medium text-zinc-300">Export selected route</h3>
-            {(routeElevation || elevationLoading || effortLabel) && (
-              <div className="space-y-1.5">
-                {elevationLoading ? (
-                  <span className="text-xs text-zinc-500 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Elevation…</span>
-                ) : routeElevation ? (
-                  <>
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="text-zinc-400">Climb: {routeElevation.climbMeters} m</span>
-                      {effortLabel && <span className={effortLabel.color}>Effort: {effortLabel.label}</span>}
-                    </div>
-                    {routeElevation.elevations.length > 1 && (
-                      <ElevationSparkline elevations={routeElevation.elevations} className="h-8 w-full" />
-                    )}
-                  </>
-                ) : effortLabel ? (
-                  <span className={`text-xs ${effortLabel.color}`}>Effort: {effortLabel.label}</span>
-                ) : null}
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <a
-                href={buildGoogleMapsUrl(selectedRoute.geometry.coordinates)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30"
-              >
-                <MapPin className="w-4 h-4" />
-                Open in Google Maps
-              </a>
-              <button
-                type="button"
-                onClick={() => downloadGPX(selectedRoute)}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30"
-              >
-                <Download className="w-4 h-4" />
-                Download GPX (for watch)
-              </button>
-            </div>
-            <p className="text-xs text-zinc-500">
-              GPX works with Garmin, Apple Watch (via apps), Strava, and other running apps.{" "}
-              <a
-                href="/routes/export"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-zinc-300 underline hover:text-white"
-              >
-                See how to send this to Strava / Garmin / Apple →
-              </a>
-            </p>
-          </div>
-        ) : null}
       </section>
 
-      <section className="rounded-2xl overflow-hidden border border-white/10 bg-black/20">
+      <section className="panel overflow-hidden p-0">
         <MapContainer
           center={
             start && end

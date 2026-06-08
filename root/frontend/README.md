@@ -11,7 +11,13 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
 - **Interactive map-first UX**
   - Click directly on the map to set a **start point** (roundtrip) or **start + end** (one-way).
   - Or type an address / landmark (via OpenStreetMap Nominatim) and jump there.
+  - **Use my location** sets start from GPS and reverse-geocodes the label.
   - Works globally – any place OSM has coverage.
+
+- **Sectioned sidebar planner**
+  - **Trip type** → **Locations** → **Run settings** before generate.
+  - After generate: **Results** (sort + pace + compare cards), **Save & share**, **Export**.
+  - Light/dark theme toggle (CSS variables, persisted in `localStorage`).
 
 - **Roundtrip vs one-way**
   - **There and back**: choose a target distance; the router finds out-and-back loops that roughly hit your goal.
@@ -29,22 +35,21 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
   - **Elevation**: Flat / Rolling / Hilly.
   - **Surface**: Road / Trail / Mixed.
   - **Safety bias**: Balanced / Safer.
-  - These are passed through to Trail Router (when available) and to the AI layer that ranks the options and generates descriptions.
+  - These are passed through to Trail Router (when available) and to the optional AI layer for descriptions/ranking.
 
-- **Preferences & ranking**
-  - **Preferences (optional)** – free-text like “avoid main road, more shade, waterfront if possible”.
-  - **Rank by (optional)** – e.g. “best for morning run”, “most scenic”, “easiest”.
-  - Both fields are fed into the AI ranking layer to:
-    - Adjust how routes are ordered.
-    - Generate natural-language **route descriptions** and **tips**.
+- **Sort, pace & compare (no AI required)**
+  - **Sort by**: Recommended, Closest to target, Shortest, Longest, Fastest (map estimate).
+  - **Pace** input (`6:00` per km/mi) for “your time” estimates.
+  - **Compare cards** in the sidebar show distance, your time, map estimate, and vs-target delta for each option.
+  - With AI enabled, “Recommended” can follow the AI pick; otherwise routes stay in server order.
 
-- **Multiple route options with AI labeling**
+- **Multiple route options**
   - For each set of parameters, the app returns up to **3 options**:
-    - Name (e.g. Option A/B/C, or AI-renamed).
+    - Name (e.g. Option A/B/C, or AI-renamed when configured).
     - Distance and estimated duration.
-    - A short AI-generated description and tip where available.
+    - Optional AI-generated description and tip.
     - A visual color-coded polyline on the map for each option.
-  - One option is highlighted as the **“AI pick”**.
+  - One option is highlighted as the **top pick** (AI pick when available).
 
 ### Route quality, safety & feedback
 
@@ -116,9 +121,9 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
 ### Personalization & saved routes
 
 - **Recent start locations**
-  - The last few start points you’ve used (via map click or search) are stored in `localStorage` (`runnr:recent-starts`).
-  - Shown as **“Recent” chips** under the Start location input.
-  - Clicking a chip re-centers and reuses that start point with one tap.
+  - The last few start points you’ve used are stored in `localStorage` (`runnr:recent-starts`).
+  - Shown as a collapsible **Recent starts** list under the Start input (compact labels, full name on hover).
+  - Clicking an entry reuses that start point with one tap.
 
 - **Saved route sets (Supabase-backed)**
   - You can **save** the entire set of generated routes with:
@@ -127,12 +132,17 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
     - Target distance and unit.
     - Metrics (elevation, surface, safety, route type).
     - The actual route options (polylines + metadata).
-  - Saved data is stored in Supabase in `saved_routes`.
-  - The app also keeps a **local list of saved route IDs** in `localStorage` (`runnr:saved-routes`) for quick access.
+  - Saved data is stored in Supabase in `saved_routes` (via server API using the service role key).
+  - The app keeps a **local list of saved route IDs** in `localStorage` (`runnr:saved-routes`); the saved-routes page hydrates from Supabase and drops stale IDs.
 
 - **Saved routes overview**
-  - `/routes/saved` lists previously saved route sets from this browser.
+  - `/routes/saved` lists route sets saved from this browser, synced from Supabase.
   - Each entry links to `/routes/saved/[id]` for a detailed map view.
+
+- **Share previews (OG) & PWA**
+  - Saved route pages expose dynamic Open Graph images for link previews.
+  - Set `NEXT_PUBLIC_SITE_URL` in production so OG URLs resolve correctly.
+  - `manifest.json` + icons support add-to-home-screen install.
 
 - **Saved route detail view**
   - Shows:
@@ -145,13 +155,14 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
     - Deletes from Supabase.
     - Cleans it out of your local `runnr:saved-routes`.
 
-### AI integration
+### AI integration (optional)
 
-- AI is used for:
-  - Route **naming / descriptions** (“scenic waterfront loop”, “steady neighborhood loop”).
-  - Short **run tips** per option (e.g. best time of day, pacing notes).
-  - Ranking routes according to your **preferences** and **rank-by** text.
-  - A one-line **“AI: …” preference interpretation** that explains how your free-text inputs were used.
+- AI is used when configured for:
+  - Route **naming / descriptions** and short **run tips** per option.
+  - Ranking routes for the **Recommended** sort order.
+  - A one-line **preference interpretation** when applicable.
+
+- Without `OPENAI_API_KEY` (or local LLM), routing, sorting, pace comparison, save/share, and export all still work.
 
 - Implementation details:
   - AI logic is in `src/app/api/routes/ai-enhance.ts`.
@@ -167,7 +178,7 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
 ## Architecture
 
 - **Framework**: Next.js App Router (`src/app`), React 19, TypeScript.
-- **Styling**: Tailwind CSS-style utility classes with a custom glassmorphism dark theme.
+- **Styling**: Tailwind-style utilities + CSS design tokens (Inter, teal accent, light/dark theme).
 - **Map & routing**:
   - [React Leaflet](https://react-leaflet.js.org/) + [Leaflet](https://leafletjs.com/) for map rendering.
   - [OpenStreetMap](https://www.openstreetmap.org) tiles.
@@ -176,10 +187,11 @@ runnr is a Next.js app for designing smarter running routes. You set your **dist
 - **Backend**:
   - Supabase (PostgreSQL + RLS) for persistent storage.
   - Next.js route handlers under `src/app/api/**` for:
-    - `/api/routes` – route generation + AI enhancement.
-    - `/api/geocode` – OSM/Nominatim lookup.
+    - `/api/routes` – route generation + optional AI enhancement.
+    - `/api/geocode` – forward search or reverse geocode (lat/lon).
     - `/api/elevation` – elevation samples via Open-Elevation.
     - `/api/routes/save` – create `saved_routes` rows.
+    - `/api/routes/saved` – batch fetch saved routes by ID (list page).
     - `/api/routes/saved/[id]` – fetch/delete saved sets.
     - `/api/routes/saved/[id]/feedback` – thumbs/tags storage and aggregation.
 - **State & data fetching**:
@@ -224,6 +236,9 @@ LOCAL_LLM_MODEL=llama3.2
 # Optional: custom routers
 # OSRM_BASE_URL=https://your-osrm.example.com
 # TRAIL_ROUTER_URL=https://trailrouter.com/ors/experimentalroutes
+
+# Production: correct OG / metadata URLs for saved route links
+# NEXT_PUBLIC_SITE_URL=https://your-domain.com
 ```
 
 > The Supabase client on the server uses **`SUPABASE_SERVICE_ROLE_KEY`**; the anon key has no RLS policies and cannot access data directly, which keeps the DB secure even if the anon key is visible in frontend code.
@@ -284,41 +299,4 @@ Then open `http://localhost:3000`.
   - Offline export bundles for trips / races.
   - Heatmap overlays from public data sources.
 
-For now, the project is a complete, secure, globally-usable **running route builder** with thoughtful UX and a deep feature set geared toward real runners.
-
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For now, the project is a complete, globally-usable **running route builder** with thoughtful UX and a deep feature set geared toward real runners.

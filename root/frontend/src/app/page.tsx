@@ -1,228 +1,143 @@
 import Navbar from "./components/Navbar";
-import {
-  Route,
-  Sparkles,
-  Gauge,
-  MapPin,
-  ArrowRight,
-  Zap,
-  Shield,
-  BarChart3,
-} from "lucide-react";
+import { Gauge, MapPin, ArrowRight, Shield, BarChart3 } from "lucide-react";
 import Link from "next/link";
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-(--background) bg-grid overflow-x-hidden">
+    <div className="min-h-screen bg-(--background)">
       <Navbar />
 
-      <section className="relative min-h-[90vh] flex flex-col items-center justify-center px-6 pt-28 pb-20">
-        <div
-          className="glow-orb w-150 h-150 -top-40 -left-40 bg-blue-500"
-          aria-hidden
-        />
-        <div
-          className="glow-orb w-100 h-100 top-1/2 -right-40 bg-violet-500"
-          aria-hidden
-        />
-        <div
-          className="glow-orb w-75 h-75 bottom-20 left-1/3 bg-pink-500/60"
-          aria-hidden
-        />
-
-        <div className="relative z-10 max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-zinc-300 mb-8">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>AI-powered route generation</span>
-          </div>
-
-          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white mb-6">
-            Run smarter.
-            <br />
-            <span className="gradient-text">Routes that adapt to you.</span>
+      <section className="border-b border-default bg-surface">
+        <div className="max-w-3xl mx-auto px-6 py-20 sm:py-28 text-center">
+          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight text-heading mb-5">
+            Plan your next run
           </h1>
-
-          <p className="text-lg sm:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Set your distance, elevation, and terrain. Our AI designs the perfect
-            running route in seconds—so you can focus on the run, not the map.
+          <p className="text-lg text-body max-w-xl mx-auto mb-8 leading-relaxed">
+            Set your distance, elevation, and surface preferences. Get a few
+            route options on the map in seconds.
           </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/routes"
-              className="group inline-flex items-center gap-2 rounded-full bg-white text-zinc-900 font-semibold px-6 py-3.5 hover:bg-zinc-200 transition-all shadow-lg shadow-white/10"
-            >
-              Start building routes
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link href="/routes" className="btn btn-primary px-5 py-2.5">
+              Start planning
+              <ArrowRight className="w-4 h-4" />
             </Link>
-            <Link
-              href="#how-it-works"
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 py-3.5 font-medium text-white hover:bg-white/10 transition-colors"
-            >
-              See how it works
+            <Link href="#how-it-works" className="btn btn-secondary px-5 py-2.5">
+              How it works
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Features */}
-      <section
-        id="features"
-        className="relative py-24 px-6 border-t border-white/5"
-      >
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              Built for runners, powered by AI
+      <section id="features" className="py-20 px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-12">
+            <h2 className="text-2xl font-semibold text-heading mb-2">
+              What you can control
             </h2>
-            <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
-              One tool for distance, elevation, surface, and safety. Get a route
-              that matches your goals every time.
+            <p className="text-body">
+              One tool for distance, elevation, surface, and safety preferences.
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               {
                 icon: Gauge,
                 title: "Distance",
-                description:
-                  "Set target distance. AI finds loops and out-and-backs that fit.",
+                description: "Target a specific length for loops or out-and-backs.",
               },
               {
                 icon: BarChart3,
-                title: "Elevation control",
-                description:
-                  "Choose flat, rolling, or hilly. Control total climb so every run matches your plan.",
+                title: "Elevation",
+                description: "Choose flat, rolling, or hilly terrain.",
               },
               {
                 icon: MapPin,
-                title: "Terrain & surface",
-                description:
-                  "Road, trail, track, or mix. Routes stay on the surfaces you want.",
+                title: "Surface",
+                description: "Road, trail, or a mix depending on where you run.",
               },
               {
                 icon: Shield,
-                title: "Safe & well-lit",
-                description:
-                  "Prefer well-lit, populated areas? AI can bias routes toward safer options.",
+                title: "Safety bias",
+                description: "Optionally favor well-lit, populated areas.",
               },
             ].map(({ icon: Icon, title, description }) => (
-              <div
-                key={title}
-                className="group rounded-2xl border border-white/5 bg-white/2 p-6 hover:bg-white/4 hover:border-white/10 transition-all"
-              >
-                <div className="rounded-xl bg-white/5 border border-white/5 w-10 h-10 flex items-center justify-center mb-4 group-hover:bg-white/10 transition-colors">
-                  <Icon className="w-5 h-5 text-blue-400" />
-                </div>
-                <h3 className="font-semibold text-white mb-2">{title}</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  {description}
-                </p>
+              <div key={title} className="panel p-5">
+                <Icon className="w-5 h-5 icon-accent mb-3" strokeWidth={1.75} />
+                <h3 className="font-medium text-heading mb-1.5">{title}</h3>
+                <p className="text-sm text-body leading-relaxed">{description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How it works */}
-      <section
-        id="how-it-works"
-        className="relative py-24 px-6 border-t border-white/5"
-      >
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            How it works
-          </h2>
-          <p className="text-zinc-400 text-lg mb-16">
-            Three steps from your goals to a ready-to-run route.
+      <section id="how-it-works" className="py-20 px-6 border-t border-default bg-surface">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="text-2xl font-semibold text-heading mb-2">How it works</h2>
+          <p className="text-body mb-10">
+            Three steps from your preferences to a route you can export.
           </p>
 
-          <div className="grid md:grid-cols-3 gap-8 text-left">
+          <ol className="space-y-8">
             {[
               {
-                step: "1",
                 title: "Set your parameters",
                 description:
-                  "Enter distance, elevation preference, start point, and surface type.",
-                icon: Zap,
+                  "Pick a start point, distance, elevation preference, and surface type.",
               },
               {
-                step: "2",
-                title: "AI generates routes",
+                title: "Compare route options",
                 description:
-                  "Our model explores the map and returns several options that match your criteria.",
-                icon: Route,
+                  "The app generates several candidates and shows them on the map.",
               },
               {
-                step: "3",
-                title: "Pick and go",
+                title: "Export and go",
                 description:
-                  "Choose a route, export to your watch or app, and head out.",
-                icon: Sparkles,
+                  "Download GPX or open in Google Maps, then head out.",
               },
-            ].map(({ step, title, description, icon: Icon }) => (
-              <div key={step} className="relative">
-                <div className="flex items-start gap-4">
-                  <span className="shrink-0 w-10 h-10 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-sm font-bold text-white">
-                    {step}
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Icon className="w-4 h-4 text-violet-400" />
-                      <h3 className="font-semibold text-white">{title}</h3>
-                    </div>
-                    <p className="text-zinc-400 text-sm leading-relaxed">
-                      {description}
-                    </p>
-                  </div>
+            ].map(({ title, description }, i) => (
+              <li key={title} className="flex gap-4">
+                <span className="shrink-0 w-8 h-8 rounded-md bg-(--segment-bg) border border-default flex items-center justify-center text-sm font-medium text-body">
+                  {i + 1}
+                </span>
+                <div>
+                  <h3 className="font-medium text-heading mb-1">{title}</h3>
+                  <p className="text-sm text-body leading-relaxed">{description}</p>
                 </div>
-                {step !== "3" && (
-                  <div className="hidden md:block absolute top-5 -right-4 w-8 border-t border-dashed border-white/10" />
-                )}
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       </section>
 
-      <section className="relative py-24 px-6 border-t border-white/5">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="rounded-3xl border border-white/10 bg-linear-to-b from-white/5 to-transparent p-12 sm:p-16">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
-              Ready to run better routes?
-            </h2>
-            <p className="text-zinc-400 mb-8">
-              Join runners who plan less and run more.
-            </p>
-            <Link
-              href="/routes"
-              className="inline-flex items-center gap-2 rounded-full bg-white text-zinc-900 font-semibold px-6 py-3.5 hover:bg-zinc-200 transition-colors"
-            >
-              Get started free
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-white/5 py-12 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
-          <Link
-            href="/"
-            className="text-lg font-semibold text-white"
-          >
-            runn<span className="gradient-text">r</span>
+      <section className="py-16 px-6 border-t border-default">
+        <div className="max-w-xl mx-auto text-center panel p-8">
+          <h2 className="text-xl font-semibold text-heading mb-2">
+            Ready to plan a route?
+          </h2>
+          <p className="text-body text-sm mb-6">
+            No account required to generate routes.
+          </p>
+          <Link href="/routes" className="btn btn-primary">
+            Open route planner
+            <ArrowRight className="w-4 h-4" />
           </Link>
-          <div className="flex items-center gap-8 text-sm text-zinc-400">
-            <Link href="https://www.linkedin.com/in/dhruv-patel-747748293/" className="hover:text-white transition-colors">
-              Contact
-            </Link>
-          </div>
         </div>
-        <p className="max-w-6xl mx-auto mt-6 text-center sm:text-left text-sm text-zinc-500">
-          © {new Date().getFullYear()} runnr. AI-powered running route generator.
+      </section>
+
+      <footer className="border-t border-default py-10 px-6 bg-surface">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <span className="text-sm font-medium text-heading">runnr</span>
+          <Link
+            href="https://www.linkedin.com/in/dhruv-patel-747748293/"
+            className="text-sm text-body hover:text-heading transition-colors"
+          >
+            Contact
+          </Link>
+        </div>
+        <p className="max-w-5xl mx-auto mt-4 text-center sm:text-left text-xs text-subtle">
+          © {new Date().getFullYear()} runnr
         </p>
       </footer>
     </div>

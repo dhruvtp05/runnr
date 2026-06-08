@@ -180,7 +180,6 @@ async function fetchOsrmRoute(points: LatLng[]) {
       geometry: { type: "LineString"; coordinates: Array<[number, number]> }; // [lon, lat]
     }>;
     message?: string;
-    code?: string;
   };
 
   if (json.code !== "Ok" || !json.routes?.[0]) {
@@ -473,7 +472,7 @@ export async function POST(req: Request) {
 
       // Only add fallback if we already have Option A (a real route within tolerance)
       if (!addedThisBearing && lastRouted && lastWaypoint && routes.length >= 1 && routes.length < MAX_ROUTES) {
-        const idx = routes.length;
+        const idx: number = routes.length;
         routes.push({
           id: `opt_${idx}`,
           name: names[idx],

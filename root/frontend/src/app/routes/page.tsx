@@ -3,17 +3,16 @@ import RoutesClientLoader from "./routes-client-loader";
 
 export default function RoutesPage() {
   return (
-    <div className="min-h-screen bg-(--background) bg-grid overflow-x-hidden">
+    <div className="min-h-screen bg-(--background)">
       <Navbar />
-      <main className="pt-28 pb-16 px-6">
+      <main className="py-8 px-6">
         <div className="max-w-6xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
-              Build a run
+          <div className="mb-6">
+            <h1 className="text-2xl sm:text-3xl font-semibold text-heading mb-1">
+              Route planner
             </h1>
-            <p className="text-zinc-400">
-              Click the map to set your start point, then generate a few route
-              options.
+            <p className="text-body text-sm">
+              Set a start point on the map, search for an address, or use your current location.
             </p>
           </div>
 
