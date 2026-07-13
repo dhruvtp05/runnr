@@ -11,21 +11,21 @@
 
 ---
 
-## ✨ Features
+##  Features
 
-* 🗺️ **Smart Route Generation** Powered by [Trail Router](https://trailrouter.com/) to prioritize green spaces and avoid busy streets. If an area isn't covered, it seamlessly falls back to OSRM to build intelligent, out-and-back routes that closely match your target distance (within 7–15% variance).
-* ⛰️ **Tailored to Your Run** Choose between **Road, Trail, or Mixed** surfaces. Customize further by setting your preferred elevation (flat, rolling, hilly) and safety levels (balanced, safer) to tweak waypoints and routing behavior.
-* 🤖 **AI-Powered Insights (Optional)** Connect **OpenAI** or run locally with **Ollama** to transform raw routes into curated experiences. The AI provides:
+*  **Smart Route Generation** Powered by [Trail Router](https://trailrouter.com/) to prioritize green spaces and avoid busy streets. If an area isn't covered, it seamlessly falls back to OSRM to build intelligent, out-and-back routes that closely match your target distance (within 7–15% variance).
+*  **Tailored to Your Run** Choose between **Road, Trail, or Mixed** surfaces. Customize further by setting your preferred elevation (flat, rolling, hilly) and safety levels (balanced, safer) to tweak waypoints and routing behavior.
+*  **AI-Powered Insights (Optional)** Connect **OpenAI** or run locally with **Ollama** to transform raw routes into curated experiences. The AI provides:
   * Catchy short names and one-line descriptions.
   * Personalized run tips (terrain info, hill warnings, best time to run).
   * Intelligent rankings based on your free-text preferences (e.g., *"most scenic"*, *"avoid main roads"*).
-* 💾 **Save & Share (Optional)** Backed by **Supabase**, you can save your generated route sets, name them, and generate shareable links (`/routes/saved/<id>`). Perfect for planning group runs or saving a favorite loop for later.
-* 📤 **Export Anywhere** * **Google Maps:** Open your route directly in Google Maps, and follow it on your phone.
+*  **Save & Share (Optional)** Backed by **Supabase**, you can save your generated route sets, name them, and generate shareable links (`/routes/saved/<id>`). Perfect for planning group runs or saving a favorite loop for later.
+*  **Export Anywhere** * **Google Maps:** Open your route directly in Google Maps, and follow it on your phone.
   * **GPX Download:** Export the route as a `.gpx` file to import into Strava, Garmin Connect, Apple Watch (via WorkOutDoors), and more.
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 Get up and running locally in just a few steps:
 
@@ -44,7 +44,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. Click the m
 
 ---
 
-## 🔑 Configuration & API Keys (Optional)
+##  Configuration & API Keys (Optional)
 
 The app works perfectly out of the box for basic routing. However, you can unlock AI polish and cloud-saving features by configuring a `.env.local` file in the `runnr/root/frontend` directory. 
 
@@ -57,7 +57,7 @@ Create a `.env.local` file and add the relevant keys below based on the features
 # RUNNR Environment Variables Example
 # ==========================================
 
-# 🤖 AI Provider (Choose one: 'openai' or 'ollama')
+#  AI Provider (Choose one: 'openai' or 'ollama')
 AI_PROVIDER=openai
 
 # Option A: OpenAI (Cloud)
@@ -68,7 +68,7 @@ OPENAI_API_KEY=sk-your-openai-api-key-goes-here
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3
 
-# 💾 Supabase (For saving & sharing routes)
+#  Supabase (For saving & sharing routes)
 # Get these from your Supabase Project Settings > API
 NEXT_PUBLIC_SUPABASE_URL=[https://your-project-id.supabase.co](https://your-project-id.supabase.co)
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key-goes-here
@@ -81,7 +81,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key-goes-here
 
 ---
 
-## 💻 Tech Stack
+##  Tech Stack
 
 * **Framework:** Next.js (App Router)
 * **UI/Components:** React
